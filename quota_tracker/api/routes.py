@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -470,17 +472,27 @@ def register_routes(
             "https://raw.githubusercontent.com/Thomas97460/quota-tracker/main/install.sh "
             "| bash"
         )
-        subprocess.Popen(
+        systemd_run = shutil.which("systemd-run")
+        if not systemd_run:
+            raise HTTPException(status_code=503, detail="systemd-run is not available")
+
+        unit_name = f"quota-tracker-updater-{time.time_ns()}"
+        result = subprocess.run(
             [
-                "systemd-run",
+                systemd_run,
                 "--user",
-                "--unit=quota-tracker-updater",
+                "--collect",
+                f"--unit={unit_name}",
                 "--description=quota-tracker self-update",
                 "bash",
                 "-c",
                 install_cmd,
             ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
-        return {"status": "updating"}
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "failed to start updater").strip()
+            raise HTTPException(status_code=503, detail=detail[-500:])
+        return {"status": "updating", "unit": unit_name}

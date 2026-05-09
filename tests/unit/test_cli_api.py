@@ -215,6 +215,57 @@ def test_health_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     assert len(payload["providers"]) == 4
 
 
+def test_update_endpoint_starts_unique_systemd_unit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[list[str]] = []
+
+    class _Result:
+        returncode = 0
+        stdout = "started"
+        stderr = ""
+
+    def fake_run(cmd: list[str], **kwargs: object) -> _Result:
+        calls.append(cmd)
+        assert kwargs["timeout"] == 10
+        return _Result()
+
+    monkeypatch.setattr("quota_tracker.api.routes.shutil.which", lambda name: "/bin/systemd-run")
+    monkeypatch.setattr("quota_tracker.api.routes.time.time_ns", lambda: 123456789)
+    monkeypatch.setattr("quota_tracker.api.routes.subprocess.run", fake_run)
+
+    app = api.create_app(db_path=tmp_path / "api.sqlite3")
+    response = TestClient(app).post("/api/update")
+
+    assert response.status_code == 200
+    assert response.json()["unit"] == "quota-tracker-updater-123456789"
+    assert calls
+    assert calls[0][:4] == [
+        "/bin/systemd-run",
+        "--user",
+        "--collect",
+        "--unit=quota-tracker-updater-123456789",
+    ]
+
+
+def test_update_endpoint_reports_systemd_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Result:
+        returncode = 1
+        stdout = ""
+        stderr = "unit failed"
+
+    monkeypatch.setattr("quota_tracker.api.routes.shutil.which", lambda name: "/bin/systemd-run")
+    monkeypatch.setattr("quota_tracker.api.routes.subprocess.run", lambda *a, **k: _Result())
+
+    app = api.create_app(db_path=tmp_path / "api.sqlite3")
+    response = TestClient(app).post("/api/update")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "unit failed"
+
+
 def test_cli_migrate(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -34,25 +34,41 @@ export function useVersion(): UseVersionResult {
   }, [fetchVersion])
 
   const triggerUpdate = useCallback(async () => {
+    const previous = info.current
+    const target = info.latest
     setUpdating(true)
     try {
-      await fetch("/api/update", { method: "POST" })
+      const updateResponse = await fetch("/api/update", { method: "POST" })
+      if (!updateResponse.ok) throw new Error(await updateResponse.text())
     } catch {
-      // ignore — service will restart
+      setUpdating(false)
+      return
     }
-    // Poll until the service comes back up (max 90s), then reload
-    const deadline = Date.now() + 90_000
-    const poll = async () => {
+
+    // Poll until the restarted service reports the new version. The service often
+    // stays reachable while the detached updater is still downloading.
+    const deadline = Date.now() + 180_000
+    while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 3000))
       try {
         const r = await fetch("/api/version")
-        if (r.ok) { window.location.reload(); return }
-      } catch { /* still restarting */ }
-      if (Date.now() < deadline) poll()
-      else window.location.reload()
+        if (r.ok) {
+          const next = await r.json() as VersionInfo
+          const reachedTarget = target && next.current === target
+          const changedVersion = previous && next.current && next.current !== previous
+          const noLongerOutdated = next.latest && next.current === next.latest && !next.update_available
+          if (reachedTarget || changedVersion || noLongerOutdated) {
+            window.location.reload()
+            return
+          }
+        }
+      } catch {
+        // Service is restarting.
+      }
     }
-    poll()
-  }, [])
+    await fetchVersion()
+    setUpdating(false)
+  }, [fetchVersion, info.current, info.latest])
 
   return {
     current: info.current,
