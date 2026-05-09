@@ -78,7 +78,7 @@ export function Sidebar(): React.JSX.Element {
           <div className="sidebar-brand-name">Quota Tracker</div>
           <div className="sidebar-brand-version-row">
             {current && <span className="sidebar-brand-version">v{current}</span>}
-            {updateAvailable && !updating && !current.includes("-") && current !== "dev" && (
+            {updateAvailable && !updating && !current.includes("dev") && (
               <button
                 className="sidebar-update-btn"
                 onClick={triggerUpdate}
