@@ -467,15 +467,15 @@ def register_routes(
     def trigger_update() -> dict[str, str]:
         """Spawn install.sh outside the service cgroup so it survives the service restart."""
 
+        systemd_run = shutil.which("systemd-run")
+        if not systemd_run:
+            raise HTTPException(status_code=503, detail="systemd-run is not available")
+
         install_cmd = (
             "INTERACTIVE=0 RESTART_SERVICE=1 curl -fsSL "
             "https://raw.githubusercontent.com/Thomas97460/quota-tracker/main/install.sh "
             "| bash"
         )
-        systemd_run = shutil.which("systemd-run")
-        if not systemd_run:
-            raise HTTPException(status_code=503, detail="systemd-run is not available")
-
         unit_name = f"quota-tracker-updater-{time.time_ns()}"
         result = subprocess.run(
             [

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { NavLink, useLocation } from "react-router-dom"
 import { useProviders } from "../../contexts/ProvidersContext"
 import { useVersion } from "../../hooks/useVersion"
@@ -66,7 +66,27 @@ export function Sidebar(): React.JSX.Element {
   const location = useLocation()
   const latest = latestQuotas(quotas)
   const [theme, toggleTheme] = useTheme()
-  const { current, updateAvailable, latestVersion, updating, triggerUpdate } = useVersion()
+  const { current, updateAvailable, latestVersion } = useVersion()
+  const [updatePopup, setUpdatePopup] = useState(false)
+  const popupRef = useRef<HTMLDivElement>(null)
+  const INSTALL_CMD = "curl -fsSL https://raw.githubusercontent.com/Thomas97460/quota-tracker/main/install.sh | bash"
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (!updatePopup) return
+    const handler = (e: MouseEvent) => {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) setUpdatePopup(false)
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [updatePopup])
+
+  const copyCmd = () => {
+    navigator.clipboard.writeText(INSTALL_CMD).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
 
   return (
     <aside className="sidebar">
@@ -78,17 +98,30 @@ export function Sidebar(): React.JSX.Element {
           <div className="sidebar-brand-name">Quota Tracker</div>
           <div className="sidebar-brand-version-row">
             {current && <span className="sidebar-brand-version">v{current}</span>}
-            {updateAvailable && !updating && !current.includes("dev") && (
+            {updateAvailable && !current.includes("dev") && (
               <button
-                className="sidebar-update-btn"
-                onClick={triggerUpdate}
-                title={`Update to v${latestVersion}`}
+                className="sidebar-update-badge"
+                onClick={() => setUpdatePopup(true)}
+                title={`v${latestVersion} available`}
               >
                 ↑ v{latestVersion}
               </button>
             )}
-            {updating && <span className="sidebar-updating">restarting…</span>}
           </div>
+          {updatePopup && (
+            <div className="update-popup-backdrop">
+              <div className="update-popup" ref={popupRef}>
+                <div className="update-popup-title">Update available — v{latestVersion}</div>
+                <div className="update-popup-body">
+                  <code className="update-popup-cmd">{INSTALL_CMD}</code>
+                  <button className="update-popup-copy" onClick={copyCmd}>
+                    {copied ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+                <button className="update-popup-close" onClick={() => setUpdatePopup(false)}>✕</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,8 @@ from quota_tracker import api, cli
 from quota_tracker.config import AppConfig
 from quota_tracker.config import load_config as load_config_from_path
 from quota_tracker.config import save_config as save_to_path
+
+api_routes = importlib.import_module("quota_tracker.api.routes")
 
 
 class _FakeSummary:
@@ -230,9 +233,9 @@ def test_update_endpoint_starts_unique_systemd_unit(
         assert kwargs["timeout"] == 10
         return _Result()
 
-    monkeypatch.setattr("quota_tracker.api.routes.shutil.which", lambda name: "/bin/systemd-run")
-    monkeypatch.setattr("quota_tracker.api.routes.time.time_ns", lambda: 123456789)
-    monkeypatch.setattr("quota_tracker.api.routes.subprocess.run", fake_run)
+    monkeypatch.setattr(api_routes.shutil, "which", lambda name: "/bin/systemd-run")
+    monkeypatch.setattr(api_routes.time, "time_ns", lambda: 123456789)
+    monkeypatch.setattr(api_routes.subprocess, "run", fake_run)
 
     app = api.create_app(db_path=tmp_path / "api.sqlite3")
     response = TestClient(app).post("/api/update")
@@ -256,8 +259,8 @@ def test_update_endpoint_reports_systemd_failure(
         stdout = ""
         stderr = "unit failed"
 
-    monkeypatch.setattr("quota_tracker.api.routes.shutil.which", lambda name: "/bin/systemd-run")
-    monkeypatch.setattr("quota_tracker.api.routes.subprocess.run", lambda *a, **k: _Result())
+    monkeypatch.setattr(api_routes.shutil, "which", lambda name: "/bin/systemd-run")
+    monkeypatch.setattr(api_routes.subprocess, "run", lambda *a, **k: _Result())
 
     app = api.create_app(db_path=tmp_path / "api.sqlite3")
     response = TestClient(app).post("/api/update")

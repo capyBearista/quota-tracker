@@ -137,7 +137,7 @@ a { color: inherit; text-decoration: none; }
   color: var(--fg-4);
   font-family: var(--font-mono);
 }
-.sidebar-update-btn {
+.sidebar-update-badge {
   font-size: 10px;
   font-family: var(--font-mono);
   font-weight: 600;
@@ -148,17 +148,70 @@ a { color: inherit; text-decoration: none; }
   padding: 1px 5px;
   cursor: pointer;
   line-height: 1.6;
-  transition: background 120ms, color 120ms;
+  transition: background 120ms;
 }
-.sidebar-update-btn:hover {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-  color: var(--accent-fg);
+.sidebar-update-badge:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.update-popup-backdrop {
+  position: fixed; inset: 0;
+  z-index: 200;
+  display: flex; align-items: center; justify-content: center;
 }
-.sidebar-updating {
-  font-size: 11px;
+.update-popup {
+  position: relative;
+  background: var(--bg-1);
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  padding: 20px 20px 18px;
+  width: 520px;
+  max-width: calc(100vw - 40px);
+  box-shadow: 0 8px 32px rgba(0,0,0,.35);
+}
+.update-popup-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--fg-1);
+}
+.update-popup-body {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.update-popup-cmd {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-2);
+  background: var(--bg-0);
+  border: 1px solid var(--border-1);
+  border-radius: 6px;
+  padding: 8px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+.update-popup-copy {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background 120ms;
+}
+.update-popup-copy:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.update-popup-close {
+  position: absolute; top: 10px; right: 12px;
+  font-size: 14px;
   color: var(--fg-3);
-  font-style: italic;
+  background: none; border: none;
+  cursor: pointer; padding: 2px 4px;
 }
+.update-popup-close:hover { color: var(--fg-1); }
 
 .sidebar-section {
   padding: 14px 12px 6px;
