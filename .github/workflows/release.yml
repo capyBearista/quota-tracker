@@ -40,12 +40,10 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-          # Stamp version into source before build
-          sed -i "s/__version__ = \".*\"/__version__ = \"${VERSION}\"/" quota_tracker/_version.py
           sed -i "s/^version = .*/version = \"${VERSION}\"/" pyproject.toml
 
       - name: install python deps
-        run: uv sync --extra dev
+        run: uv sync --extra dev --reinstall-package quota-tracker
 
       - name: build frontend
         run: |
@@ -59,6 +57,7 @@ jobs:
             --onefile \
             --name quota-tracker \
             --add-data "frontend/dist:frontend/dist" \
+            --copy-metadata quota-tracker \
             quota_tracker/cli.py
 
       - name: package & checksum

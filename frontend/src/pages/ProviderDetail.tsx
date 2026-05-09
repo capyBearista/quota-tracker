@@ -70,6 +70,7 @@ export function ProviderDetail(): React.JSX.Element {
     quotaHistory,
     sessions,
     timeSeries,
+    timeSeriesGroupBy,
     timeSeriesByProvider,
     modelUsage,
     providerTotals,
@@ -421,35 +422,85 @@ export function ProviderDetail(): React.JSX.Element {
           </div>
         </div>
 
-        {/* Top projects — compact strip */}
-        {projectUsageTotal > 0 && (
-          <div className="card">
-            <div className="card-head">
-              <span className="card-title">Top projects</span>
+        {/* Top projects */}
+        <div className="card">
+          <div className="card-head">
+            <span className="card-title">Top projects</span>
+            {projectUsageTotal > 0 && (
               <span className="card-sub">{projectUsageTotal} total</span>
-            </div>
-            <div className="projects-strip">
-              {projectUsage.map((p, i) => {
-                const name = p.project_name ?? basename(p.project_path) ?? "unknown"
-                const pct = projectUsageTokens > 0 ? (p.total_tokens / projectUsageTokens) * 100 : 0
-                return (
-                  <div key={i} className="project-chip">
-                    <span className="project-chip-rank">#{i + 1}</span>
-                    <span className="project-chip-name" title={p.project_path ?? undefined}>{name}</span>
-                    <span className="project-chip-sep">·</span>
-                    <span className="project-chip-tokens">{formatLargeNumber(p.total_tokens)}</span>
-                    <div
-                      className="project-chip-bar"
-                      style={{ ["--w" as string]: pct + "%", ["--c" as string]: providerColor } as React.CSSProperties}
-                    >
-                      <i></i>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+            )}
           </div>
-        )}
+          {loading ? (
+            <div style={{ padding: "24px 20px", color: "var(--fg-3)", fontSize: 13 }}>Loading…</div>
+          ) : projectUsageTotal === 0 ? (
+            <div style={{ padding: "24px 20px", color: "var(--fg-3)", fontSize: 13 }}>
+              No projects in selected range
+            </div>
+          ) : (
+            <>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Project</th>
+                    <th className="num">Sessions</th>
+                    <th className="num">Tokens</th>
+                    <th className="num">Share</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {projectUsage.map((p, i) => {
+                    const name = p.project_name ?? basename(p.project_path) ?? "unknown"
+                    const pct = projectUsageTokens > 0 ? (p.total_tokens / projectUsageTokens) * 100 : 0
+                    return (
+                      <tr key={i}>
+                        <td>
+                          <div
+                            style={{ fontWeight: 500, color: "var(--fg-1)", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                            title={p.project_path ?? undefined}
+                          >
+                            {name}
+                          </div>
+                        </td>
+                        <td className="num">{p.session_count}</td>
+                        <td className="num">{formatLargeNumber(p.total_tokens)}</td>
+                        <td className="num">
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+                            <div
+                              className="row-bar"
+                              style={{ ["--w" as string]: pct + "%", ["--c" as string]: providerColor }}
+                            >
+                              <i></i>
+                            </div>
+                            <span style={{ minWidth: 36 }}>{pct.toFixed(0)}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              <div className="pager">
+                <button
+                  className="pager-btn"
+                  disabled={projectPage === 0}
+                  onClick={() => setProjectPage(projectPage - 1)}
+                >
+                  Prev
+                </button>
+                <span>
+                  Page {projectPage + 1} of {Math.max(1, Math.ceil(projectUsageTotal / projectPageSize))}
+                </span>
+                <button
+                  className="pager-btn"
+                  disabled={(projectPage + 1) * projectPageSize >= projectUsageTotal}
+                  onClick={() => setProjectPage(projectPage + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            </>
+          )}
+        </div>
 
         {/* Sessions */}
         <div className="card">

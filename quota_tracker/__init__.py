@@ -1,5 +1,10 @@
 """quota_tracker package."""
 
-from quota_tracker._version import __version__
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("quota-tracker")
+except PackageNotFoundError:
+    __version__ = "dev"
 
 __all__ = ["__version__"]

@@ -454,7 +454,8 @@ def register_routes(
                 )
                 if r.status_code == 200:
                     latest = r.json().get("tag_name", "").lstrip("v") or None
-                    if latest:
+                    is_dev = "-" in __version__ or __version__ == "dev"
+                    if latest and not is_dev:
                         update_available = latest != __version__
         except Exception:
             pass

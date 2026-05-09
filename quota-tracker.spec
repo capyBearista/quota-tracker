@@ -1,11 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import copy_metadata
+
+datas = [('frontend/dist', 'frontend/dist')]
+datas += copy_metadata('quota-tracker')
 
 
 a = Analysis(
     ['quota_tracker/cli.py'],
     pathex=[],
     binaries=[],
-    datas=[('frontend/dist', 'frontend/dist')],
+    datas=datas,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

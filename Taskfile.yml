@@ -133,17 +133,28 @@ tasks:
     cmds:
       - cd "{{.ROOT}}" && uv sync --extra dev
       - cd "{{.ROOT}}/frontend" && npm run build
-      - cd "{{.ROOT}}" && env -u PYTHONPATH uv run pyinstaller --noconfirm --onefile --name quota-tracker --add-data "frontend/dist:frontend/dist" quota_tracker/cli.py
+      - cd "{{.ROOT}}" && env -u PYTHONPATH uv run pyinstaller --noconfirm --onefile --name quota-tracker --add-data "frontend/dist:frontend/dist" --copy-metadata quota-tracker quota_tracker/cli.py
       - cd "{{.ROOT}}" && mkdir -p dist/release
       - cd "{{.ROOT}}" && cp dist/quota-tracker dist/release/quota-tracker-linux-amd64
       - cd "{{.ROOT}}" && sha256sum dist/release/quota-tracker-linux-amd64 > dist/release/quota-tracker-linux-amd64.sha256
 
   install-local-binary:
     cmds:
+      - systemctl --user stop quota-tracker.service 2>/dev/null || true
+      - |
+        RAW="$(git -C "{{.ROOT}}" tag --list 'v*' --sort=-version:refname 2>/dev/null | head -1 || true)"
+        if [[ -n "${RAW}" ]]; then
+          VERSION="${RAW#v}-dev"
+        else
+          VERSION="dev"
+        fi
+        sed -i "s/^version = .*/version = \"${VERSION}\"/" "{{.ROOT}}/pyproject.toml"
+      - uv --directory "{{.ROOT}}" sync --extra dev --reinstall-package quota-tracker
       - cd "{{.ROOT}}" && task package-linux
-      - cd "{{.ROOT}}" && install -Dm755 dist/release/quota-tracker-linux-amd64 "${HOME}/.local/bin/quota-tracker"
-      - cd "{{.ROOT}}" && quota-tracker install --interactive --exec-path "${HOME}/.local/bin/quota-tracker"
-      - cd "{{.ROOT}}" && quota-tracker install-user-service --exec-path "${HOME}/.local/bin/quota-tracker"
+      - install -Dm755 "{{.ROOT}}/dist/release/quota-tracker-linux-amd64" "${HOME}/.local/bin/quota-tracker"
+      - quota-tracker install --exec-path "${HOME}/.local/bin/quota-tracker"
+      - quota-tracker migrate
+      - systemctl --user start quota-tracker.service
 
   screenshot:
     desc: "capture overview screenshot into assets/screenshots/"
@@ -162,7 +173,7 @@ tasks:
     cmds:
       - cd "{{.ROOT}}" && uv sync --extra dev
       - cd "{{.ROOT}}/frontend" && npm run build
-      - cd "{{.ROOT}}" && env -u PYTHONPATH uv run pyinstaller --noconfirm --onefile --name quota-tracker --add-data "frontend/dist:frontend/dist" quota_tracker/cli.py
+      - cd "{{.ROOT}}" && env -u PYTHONPATH uv run pyinstaller --noconfirm --onefile --name quota-tracker --add-data "frontend/dist:frontend/dist" --copy-metadata quota-tracker quota_tracker/cli.py
       - cd "{{.ROOT}}" && mkdir -p dist/release
       - cd "{{.ROOT}}" && cp dist/quota-tracker dist/release/quota-tracker-linux-arm64
       - cd "{{.ROOT}}" && sha256sum dist/release/quota-tracker-linux-arm64 > dist/release/quota-tracker-linux-arm64.sha256

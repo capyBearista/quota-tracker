@@ -254,11 +254,10 @@ fi
 section "backfill"
 _LAST_OP="local scan"
 if [[ "${AUTO_SCAN}" == "1" ]]; then
-  SCAN_FLAGS="--provider all"
-  [[ "${FULL_RESCAN}" == "1" ]] && SCAN_FLAGS="${SCAN_FLAGS} --full"
+  SCAN_FLAGS=(--provider all)
+  [[ "${FULL_RESCAN}" == "1" ]] && SCAN_FLAGS+=(--full)
   spin_start "scanning local usage data"
-  # shellcheck disable=SC2086
-  SCAN_OUT="$(quota-tracker scan ${SCAN_FLAGS} 2>/dev/null)" || { spin_stop; warn "scan failed — skipping backfill (run manually: quota-tracker scan --provider all --full)"; SCAN_OUT=""; }
+  SCAN_OUT="$(quota-tracker scan "${SCAN_FLAGS[@]}" 2>/dev/null)" || { spin_stop; warn "scan failed — skipping backfill (run manually: quota-tracker scan --provider all --full)"; SCAN_OUT=""; }
   spin_stop
   if [[ -n "${SCAN_OUT}" ]]; then
     SESSIONS="$(printf '%s' "${SCAN_OUT}" | grep -oE 'sessions_upserted=[0-9]+' | grep -oE '[0-9]+' || true)"

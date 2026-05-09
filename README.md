@@ -26,13 +26,7 @@ Track token usage and quotas for [Claude](https://claude.ai), [Copilot](https://
   </a>
 </p>
 
-<div align="center">
-<img src="assets/screenshots/overview.png" alt="quota-tracker overview" width="100%">
-</div>
-
-## Quick start
-
-**Linux**
+## Quick start (Linux)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Thomas97460/quota-tracker/main/install.sh | bash
@@ -40,13 +34,6 @@ curl -fsSL https://raw.githubusercontent.com/Thomas97460/quota-tracker/main/inst
 
 Installs the binary, runs migrations, backfills history and starts a systemd user service. Open the printed URL when done.
 
-**macOS**
-
-```bash
-git clone https://github.com/Thomas97460/quota-tracker
-cd quota-tracker
-uv sync
-task run-api
-```
-
-Then open [http://localhost:8787](http://localhost:8787).
+<div align="center">
+<img src="assets/screenshots/overview.png" alt="quota-tracker overview" width="100%">
+</div>
