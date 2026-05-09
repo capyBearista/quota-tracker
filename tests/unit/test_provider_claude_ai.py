@@ -1,7 +1,6 @@
 """Claude.ai provider tests."""
 
 import json
-import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,7 +9,6 @@ from quota_tracker.providers.claude_ai import (
     _fetch_org_id,
     _load_session_key,
     _load_session_key_from_file,
-    _load_session_key_from_firefox,
     _parse_usage_response,
 )
 
@@ -167,60 +165,13 @@ def test_load_session_key_from_file_old_format_with_org_id(tmp_path: Path) -> No
     assert _load_session_key_from_file(tmp_path) == "sk-ant-sid02-abc"
 
 
-# ── _load_session_key_from_firefox ───────────────────────────────────────────
-
-
-def _make_firefox_cookies_db(tmp_path: Path, session_key: str | None) -> Path:
-    """Create a minimal Firefox cookies.sqlite with an optional claude.ai sessionKey."""
-    profile = tmp_path / ".mozilla" / "firefox" / "test.default"
-    profile.mkdir(parents=True)
-    db_path = profile / "cookies.sqlite"
-    conn = sqlite3.connect(str(db_path))
-    conn.execute(
-        "CREATE TABLE moz_cookies ("
-        "id INTEGER PRIMARY KEY, host TEXT, name TEXT, value TEXT, expiry INTEGER)"
-    )
-    if session_key is not None:
-        conn.execute(
-            "INSERT INTO moz_cookies (host, name, value, expiry) VALUES (?, ?, ?, ?)",
-            (".claude.ai", "sessionKey", session_key, 9999999999),
-        )
-    conn.commit()
-    conn.close()
-    return db_path
-
-
-def test_load_session_key_from_firefox_no_mozilla_dir(tmp_path: Path) -> None:
-    with patch("quota_tracker.providers.claude_ai.Path.home", return_value=tmp_path):
-        assert _load_session_key_from_firefox() is None
-
-
-def test_load_session_key_from_firefox_no_cookie(tmp_path: Path) -> None:
-    _make_firefox_cookies_db(tmp_path, session_key=None)
-    with patch("quota_tracker.providers.claude_ai.Path.home", return_value=tmp_path):
-        assert _load_session_key_from_firefox() is None
-
-
-def test_load_session_key_from_firefox_found(tmp_path: Path) -> None:
-    _make_firefox_cookies_db(tmp_path, session_key="sk-ant-sid02-firefox")
-    with patch("quota_tracker.providers.claude_ai.Path.home", return_value=tmp_path):
-        assert _load_session_key_from_firefox() == "sk-ant-sid02-firefox"
-
-
 # ── _load_session_key (combined) ─────────────────────────────────────────────
 
 
-def test_load_session_key_prefers_file_over_firefox(tmp_path: Path) -> None:
+def test_load_session_key_reads_file(tmp_path: Path) -> None:
     (tmp_path / "quota_tracker_creds.json").write_text(json.dumps({"session_key": "sk-from-file"}))
-    _make_firefox_cookies_db(tmp_path, session_key="sk-from-firefox")
     with patch("quota_tracker.providers.claude_ai.Path.home", return_value=tmp_path):
         assert _load_session_key(tmp_path) == "sk-from-file"
-
-
-def test_load_session_key_falls_back_to_firefox(tmp_path: Path) -> None:
-    _make_firefox_cookies_db(tmp_path, session_key="sk-ant-sid02-fox")
-    with patch("quota_tracker.providers.claude_ai.Path.home", return_value=tmp_path):
-        assert _load_session_key(tmp_path) == "sk-ant-sid02-fox"
 
 
 def test_load_session_key_returns_none_when_nothing(tmp_path: Path) -> None:
