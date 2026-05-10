@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { NavLink, useLocation } from "react-router-dom"
 import { useProviders } from "../../contexts/ProvidersContext"
 import { useVersion } from "../../hooks/useVersion"
@@ -88,9 +89,31 @@ export function Sidebar(): React.JSX.Element {
     })
   }
 
+  const updatePopupNode = updatePopup
+    ? createPortal(
+        <div className="update-popup-backdrop">
+          <div className="update-popup" ref={popupRef}>
+            <div className="update-popup-title">
+              {latestVersion ? `Update available - v${latestVersion}` : "Update Quota Tracker"}
+            </div>
+            <div className="update-popup-body">
+              <code className="update-popup-cmd">{INSTALL_CMD}</code>
+              <button className="update-popup-copy" onClick={copyCmd}>
+                {copied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+            <button className="update-popup-close" onClick={() => setUpdatePopup(false)}>x</button>
+          </div>
+        </div>,
+        document.body,
+      )
+    : null
+
   return (
-    <aside className="sidebar">
-      <div className="sidebar-brand">
+    <>
+      {updatePopupNode}
+      <aside className="sidebar">
+        <div className="sidebar-brand">
         <div className="sidebar-brand-mark">
           <LogoMark />
         </div>
@@ -106,22 +129,6 @@ export function Sidebar(): React.JSX.Element {
               {updateAvailable && latestVersion ? `↑ v${latestVersion}` : "Update"}
             </button>
           </div>
-          {updatePopup && (
-            <div className="update-popup-backdrop">
-              <div className="update-popup" ref={popupRef}>
-                <div className="update-popup-title">
-                  {latestVersion ? `Update available - v${latestVersion}` : "Update Quota Tracker"}
-                </div>
-                <div className="update-popup-body">
-                  <code className="update-popup-cmd">{INSTALL_CMD}</code>
-                  <button className="update-popup-copy" onClick={copyCmd}>
-                    {copied ? "Copied!" : "Copy"}
-                  </button>
-                </div>
-                <button className="update-popup-close" onClick={() => setUpdatePopup(false)}>✕</button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
@@ -259,6 +266,7 @@ export function Sidebar(): React.JSX.Element {
           )}
         </button>
       </div>
-    </aside>
+      </aside>
+    </>
   )
 }

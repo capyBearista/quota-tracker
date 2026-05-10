@@ -164,6 +164,7 @@ a { color: inherit; text-decoration: none; }
   position: fixed; inset: 0;
   z-index: 200;
   display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
 }
 .update-popup {
   position: relative;
