@@ -98,20 +98,20 @@ export function Sidebar(): React.JSX.Element {
           <div className="sidebar-brand-name">Quota Tracker</div>
           <div className="sidebar-brand-version-row">
             {current && <span className="sidebar-brand-version">v{current}</span>}
-            {updateAvailable && !current.includes("dev") && (
-              <button
-                className="sidebar-update-badge"
-                onClick={() => setUpdatePopup(true)}
-                title={`v${latestVersion} available`}
-              >
-                ↑ v{latestVersion}
-              </button>
-            )}
+            <button
+              className={`sidebar-update-badge${updateAvailable ? " available" : ""}`}
+              onClick={() => setUpdatePopup(true)}
+              title={latestVersion ? `v${latestVersion} available` : "Update"}
+            >
+              {updateAvailable && latestVersion ? `↑ v${latestVersion}` : "Update"}
+            </button>
           </div>
           {updatePopup && (
             <div className="update-popup-backdrop">
               <div className="update-popup" ref={popupRef}>
-                <div className="update-popup-title">Update available — v{latestVersion}</div>
+                <div className="update-popup-title">
+                  {latestVersion ? `Update available - v${latestVersion}` : "Update Quota Tracker"}
+                </div>
                 <div className="update-popup-body">
                   <code className="update-popup-cmd">{INSTALL_CMD}</code>
                   <button className="update-popup-copy" onClick={copyCmd}>
