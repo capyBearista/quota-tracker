@@ -51,7 +51,10 @@ def _build_cost_exprs(pricing: dict[str, ModelPricing]) -> dict[str, str]:
         pid, model = key.split(":", 1)
         m_esc = model.replace("'", "''").lower()
         p_esc = pid.replace("'", "''").lower()
-        cond = f"WHEN LOWER(provider_id) = '{p_esc}' AND LOWER(model_name) = '{m_esc}' THEN "
+        cond = (
+            f"WHEN (LOWER(provider_id) = '{p_esc}' OR LOWER(provider_id) LIKE '{p_esc}:%') "
+            f"AND LOWER(model_name) = '{m_esc}' THEN "
+        )
         input_tokens_expr = (
             "max(input_tokens - cached_tokens, 0)" if p_esc == "codex" else "input_tokens"
         )
@@ -82,7 +85,8 @@ def _input_tokens_sum_expr() -> str:
 
     return (
         "SUM(CASE "
-        "WHEN LOWER(provider_id) = 'codex' THEN max(input_tokens - cached_tokens, 0) "
+        "WHEN LOWER(provider_id) = 'codex' OR LOWER(provider_id) LIKE 'codex:%' "
+        "THEN max(input_tokens - cached_tokens, 0) "
         "ELSE input_tokens END) as input_tokens"
     )
 
@@ -158,7 +162,8 @@ def register_routes(
     def patch_provider(provider_id: str, payload: ProviderPatchRequest) -> dict[str, Any]:
         """Patch one provider configuration in DB."""
 
-        if provider_id not in {"gemini", "codex", "copilot", "claude"}:
+        base_id = provider_id.split(":")[0]
+        if base_id not in {"gemini", "codex", "copilot", "claude"}:
             raise HTTPException(status_code=404, detail="provider not found")
         conn = connect_db(str(db_path))
         try:

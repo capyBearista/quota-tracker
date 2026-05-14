@@ -93,8 +93,9 @@ class DaemonService:
     def _provider_instance(self, provider_id: str, config: dict[str, Any]) -> Provider:
         """Build one provider instance from persisted provider config."""
 
-        home = str(config.get("home_path", f"~/.{provider_id}"))
-        if provider_id == "gemini":
+        base_id = provider_id.split(":")[0]
+        home = str(config.get("home_path", f"~/.{base_id}"))
+        if base_id == "gemini":
             safe_options = config.get("safe_options", {})
             project_id = None
             if isinstance(safe_options, dict):
@@ -107,13 +108,13 @@ class DaemonService:
                     if isinstance(value, str) and value.strip():
                         project_id = value
                         break
-            return GeminiProvider(home=home, project_id=project_id)
-        if provider_id == "codex":
+            return GeminiProvider(home=home, project_id=project_id, provider_id=provider_id)
+        if base_id == "codex":
             include_archived = bool(config.get("safe_options", {}).get("include_archived", True))
             return CodexProvider(home=home, include_archived=include_archived)
-        if provider_id == "copilot":
+        if base_id == "copilot":
             return CopilotProvider(home=home)
-        if provider_id == "claude":
+        if base_id == "claude":
             return ClaudeAiProvider(home=home)
         raise ValueError(f"unsupported provider_id: {provider_id}")
 
@@ -121,8 +122,13 @@ class DaemonService:
         """Resolve provider selector to explicit provider id list."""
 
         if provider == "all":
-            return list(PROVIDERS)
-        if provider not in PROVIDERS:
+            conn = connect_db(self.db_path)
+            try:
+                return [row["id"] for row in list_provider_rows(conn)]
+            finally:
+                conn.close()
+        base_id = provider.split(":")[0]
+        if base_id not in PROVIDERS:
             raise ValueError(f"unsupported provider: {provider}")
         return [provider]
 
@@ -324,7 +330,7 @@ class DaemonService:
                     delta = now - datetime.fromisoformat(last_sync)
                     if delta.total_seconds() >= self.passive_sync_interval_minutes * 60:
                         scan_due = True
-                if row["id"] in AUTO_PROBE_PROVIDERS:
+                if row["id"].split(":")[0] in AUTO_PROBE_PROVIDERS:
                     last_probe = safe.get("last_probe_attempted_at") or safe.get(
                         "last_successful_probe_at"
                     )

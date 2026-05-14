@@ -11,7 +11,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-PROVIDERS = ("gemini", "codex", "copilot", "claude")
+BASE_PROVIDERS = ("gemini", "codex", "copilot", "claude")
 
 
 def utc_now_iso() -> str:
@@ -36,7 +36,8 @@ def validate_json_text(value: dict[str, Any]) -> str:
 def ensure_provider(provider_id: str) -> None:
     """Validate provider id belongs to the supported provider set."""
 
-    if provider_id not in PROVIDERS:
+    base_id = provider_id.split(":")[0]
+    if base_id not in BASE_PROVIDERS:
         raise ValueError(f"unsupported provider_id: {provider_id}")
 
 
@@ -172,32 +173,52 @@ def apply_migrations(conn: sqlite3.Connection) -> list[str]:
 def _ensure_default_providers(conn: sqlite3.Connection) -> None:
     """Insert default provider rows when missing."""
 
+    from quota_tracker.config import load_config
+
     now = utc_now_iso()
-    for provider in PROVIDERS:
-        default_config = {
-            "home_path": f"~/.{provider}",
-            "active_probe_enabled": True,
-            "high_water_marks": {},
-            "safe_options": {},
-        }
-        conn.execute(
-            """
-            INSERT INTO providers(id, enabled, config, created_at, updated_at)
-            VALUES(?, 1, ?, ?, ?)
-            ON CONFLICT(id) DO NOTHING
-            """,
-            (provider, validate_json_text(default_config), now, now),
-        )
-        row = conn.execute("SELECT config FROM providers WHERE id = ?", (provider,)).fetchone()
-        if row is None:
-            continue
-        config = json.loads(row["config"])
-        if config.get("active_probe_enabled") is not True:
-            config["active_probe_enabled"] = True
-            conn.execute(
-                "UPDATE providers SET config = ?, updated_at = ? WHERE id = ?",
-                (validate_json_text(config), now, provider),
+    config = load_config()
+
+    for base_provider in BASE_PROVIDERS:
+        provider_dict = getattr(config, base_provider, {})
+        if not provider_dict:
+            provider_dict = {
+                "default": {
+                    "home_path": f"~/.{base_provider}",
+                    "active_probe_enabled": True,
+                    "high_water_marks": {},
+                    "safe_options": {},
+                }
+            }
+
+        for account_name, instance_cfg in provider_dict.items():
+            provider_id = (
+                f"{base_provider}:{account_name}" if account_name != "default" else base_provider
             )
+            if hasattr(instance_cfg, "model_dump"):
+                cfg_dict = instance_cfg.model_dump()
+            else:
+                cfg_dict = instance_cfg
+
+            conn.execute(
+                """
+                INSERT INTO providers(id, enabled, config, created_at, updated_at)
+                VALUES(?, 1, ?, ?, ?)
+                ON CONFLICT(id) DO NOTHING
+                """,
+                (provider_id, validate_json_text(cfg_dict), now, now),
+            )
+            row = conn.execute(
+                "SELECT config FROM providers WHERE id = ?", (provider_id,)
+            ).fetchone()
+            if row is None:
+                continue
+            db_config = json.loads(row["config"])
+            if db_config.get("active_probe_enabled") is not True:
+                db_config["active_probe_enabled"] = True
+                conn.execute(
+                    "UPDATE providers SET config = ?, updated_at = ? WHERE id = ?",
+                    (validate_json_text(db_config), now, provider_id),
+                )
 
 
 @contextmanager

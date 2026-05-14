@@ -45,8 +45,8 @@ def test_merge_config_idempotent_updates() -> None:
     assert merged.daemon.web_host == "0.0.0.0"
     assert merged.daemon.web_port == 9999
     assert merged.daemon.active_probe_interval_minutes == 10
-    assert merged.gemini.enabled is False
-    assert merged.gemini.home_path == "/tmp/g"
+    assert merged.gemini["default"].enabled is False
+    assert merged.gemini["default"].home_path == "/tmp/g"
 
 
 def test_merge_config_validation_errors() -> None:
@@ -73,7 +73,7 @@ def test_run_install_preserves_db_and_creates_dirs(
     home.mkdir()
     cfg = AppConfig()
     cfg.daemon.database_path = str(home / ".local" / "share" / "quota-tracker" / "db.sqlite3")
-    cfg.codex.enabled = False
+    cfg.codex["default"].enabled = False
     monkeypatch.setattr(
         "quota_tracker.installer.DEFAULT_CONFIG_DIR",
         home / ".config" / "quota-tracker",
@@ -142,10 +142,10 @@ def test_interactive_prompts_and_bool_parser(
 
     cfg = AppConfig()
     out = configure_interactively(cfg, tmp_path)
-    assert out.gemini.enabled is True
-    assert out.codex.enabled is False
-    assert out.copilot.enabled is True
-    assert out.claude.enabled is False
+    assert out.gemini["default"].enabled is True
+    assert out.codex["default"].enabled is False
+    assert out.copilot["default"].enabled is True
+    assert out.claude["default"].enabled is False
     assert out.daemon.web_port == 9000
 
     # _parse_bool falls back to default on invalid input
@@ -186,8 +186,8 @@ def test_sync_provider_rows_preserves_runtime_safe_options(tmp_path: Path) -> No
     db_path = tmp_path / "quota.sqlite3"
     cfg = AppConfig()
     cfg.daemon.database_path = str(db_path)
-    cfg.gemini.enabled = False
-    cfg.gemini.home_path = str(tmp_path / "gemini-home")
+    cfg.gemini["default"].enabled = False
+    cfg.gemini["default"].home_path = str(tmp_path / "gemini-home")
     conn = connect_db(str(db_path))
     try:
         apply_migrations(conn)
@@ -236,10 +236,10 @@ def test_interactive_undetected_provider(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
     cfg = AppConfig()
     out = configure_interactively(cfg, tmp_path)
-    assert out.gemini.enabled is True
-    assert out.codex.enabled is False
-    assert out.copilot.enabled is False
-    assert out.claude.enabled is False
+    assert out.gemini["default"].enabled is True
+    assert out.codex["default"].enabled is False
+    assert out.copilot["default"].enabled is False
+    assert out.claude["default"].enabled is False
 
 
 def test_interactive_decline_reruns_flow(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

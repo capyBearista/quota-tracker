@@ -143,10 +143,11 @@ class GeminiProvider:
 
     metadata = ProviderMetadata("gemini", "Gemini", "~/.gemini", True, True)
 
-    def __init__(self, home: str, project_id: str | None = None):
+    def __init__(self, home: str, project_id: str | None = None, provider_id: str = "gemini"):
         """Initialize provider with home path."""
         self.home = Path(home).expanduser()
         self.project_id = project_id.strip() if project_id and project_id.strip() else None
+        self.provider_id = provider_id
         self._project_hash_map: dict[str, str] | None = None
 
     def _load_project_hash_map(self) -> dict[str, str]:
@@ -345,7 +346,7 @@ class GeminiProvider:
                 eid = sha256((key + identity).encode()).hexdigest()
                 usage.append(
                     normalize_token_usage(
-                        provider_id="gemini",
+                        provider_id=self.provider_id,
                         external_session_id=sid,
                         external_event_id=eid,
                         timestamp=message.get("timestamp") or datetime.now(UTC).isoformat(),
@@ -362,7 +363,7 @@ class GeminiProvider:
             project_path = project_hash_map.get(project_hash) if project_hash else None
             sessions.append(
                 normalize_session(
-                    provider_id="gemini",
+                    provider_id=self.provider_id,
                     external_session_id=sid,
                     model_name=model_name,
                     project_path=project_path,
@@ -421,7 +422,7 @@ class GeminiProvider:
         # Emit one row per (model_id, token_type) bucket; frontend rolls up to families.
         return [
             normalize_quota(
-                provider_id="gemini",
+                provider_id=self.provider_id,
                 quota_name=f"{b['model_id']}/{b['token_type']}",
                 timestamp=now,
                 source="active_probe",

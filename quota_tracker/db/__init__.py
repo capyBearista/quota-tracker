@@ -11,7 +11,7 @@ from quota_tracker.db.queries import (
 )
 from quota_tracker.db.records import QuotaRecord, SessionRecord, TokenUsageRecord
 from quota_tracker.db.schema import (
-    PROVIDERS,
+    BASE_PROVIDERS,
     apply_migrations,
     connect_db,
     deterministic_session_id,
@@ -22,7 +22,7 @@ from quota_tracker.db.schema import (
 )
 
 __all__ = [
-    "PROVIDERS",
+    "BASE_PROVIDERS",
     "QuotaRecord",
     "SessionRecord",
     "TokenUsageRecord",

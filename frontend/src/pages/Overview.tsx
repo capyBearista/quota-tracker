@@ -12,23 +12,14 @@ import { useProviders } from "../contexts/ProvidersContext"
 import type { ProviderId, QuotaRow } from "../types"
 import { basename, formatLargeNumber, formatCost, formatRelative, formatDate, latestQuotas } from "../utils"
 
-const PROVIDER_IDS: ProviderId[] = ["gemini", "codex", "copilot", "claude"]
-
-const PROVIDER_NAMES: Record<ProviderId, string> = {
-  gemini: "Gemini",
-  codex: "Codex",
-  copilot: "Copilot",
-  claude: "Claude",
-}
-
-const PROVIDER_LOGOS: Record<ProviderId, string> = {
+const PROVIDER_LOGOS: Record<string, string> = {
   gemini: "/logos/gemini.png",
   codex: "/logos/codex.png",
   copilot: "/logos/copilot.png",
   claude: "/logos/claude-code.png",
 }
 
-const PROVIDER_COLOR_VARS: Record<ProviderId, string> = {
+const PROVIDER_COLOR_VARS: Record<string, string> = {
   gemini: "var(--gemini)",
   codex: "var(--codex)",
   copilot: "var(--copilot)",
@@ -36,7 +27,7 @@ const PROVIDER_COLOR_VARS: Record<ProviderId, string> = {
 }
 
 // Hex values for provider colors (for recharts which can't use CSS vars)
-const PROVIDER_COLORS_HEX: Record<ProviderId, string> = {
+const PROVIDER_COLORS_HEX: Record<string, string> = {
   gemini: "#4F8DF7",
   codex: "#10B981",
   copilot: "#F59E0B",
@@ -46,6 +37,16 @@ const PROVIDER_COLORS_HEX: Record<ProviderId, string> = {
 const PROJECT_PAGE_SIZE = 5
 const SESSION_PAGE_SIZE = 5
 
+function formatProviderName(id: string): string {
+  const parts = id.split(":")
+  const base = parts[0]
+  const baseName = base.charAt(0).toUpperCase() + base.slice(1)
+  if (parts.length > 1 && parts[1] !== "default") {
+    return `${baseName} (${parts[1]})`
+  }
+  return baseName
+}
+
 function statusFor(pct: number): "crit" | "warn" | "ok" {
   if (pct >= 95) return "crit"
   if (pct >= 70) return "warn"
@@ -54,7 +55,7 @@ function statusFor(pct: number): "crit" | "warn" | "ok" {
 
 // === Alert Ribbon ===
 interface AlertItem {
-  providerId: ProviderId
+  providerId: string
   quotaName: string
   pct: number
   resetsAt: string | null
@@ -113,9 +114,9 @@ function AlertRibbon({ latest }: { latest: QuotaRow[] }): React.JSX.Element | nu
               {i > 0 && <span className="dim"> · </span>}
               <span
                 className="pill"
-                style={{ color: PROVIDER_COLOR_VARS[it.providerId] }}
+                style={{ color: PROVIDER_COLOR_VARS[it.providerId.split(":")[0]] || "var(--fg-1)" }}
               >
-                {PROVIDER_NAMES[it.providerId]}
+                {formatProviderName(it.providerId)}
               </span>
               <span> {displayLabel(it.providerId, it.quotaName)} </span>
               <strong>{it.pct.toFixed(1)}%</strong>
@@ -133,9 +134,9 @@ export function Overview(): React.JSX.Element {
 
   const [pieProvider, setPieProvider] = useState<string>("all")
   const [chartMode, setChartMode] = useState<"tokens" | "cost">("tokens")
-  const [topProjectsProvider, setTopProjectsProvider] = useState<ProviderId | "all">("all")
+  const [topProjectsProvider, setTopProjectsProvider] = useState<string>("all")
   const [topProjectsPage, setTopProjectsPage] = useState(0)
-  const [sessionsProvider, setSessionsProvider] = useState<ProviderId | "all">("all")
+  const [sessionsProvider, setSessionsProvider] = useState<string>("all")
   const [sessionsPage, setSessionsPage] = useState(0)
 
   const {
@@ -163,14 +164,17 @@ export function Overview(): React.JSX.Element {
     setSessionsPage(0)
   }
 
+  const providerIds = Array.from(new Set(providers.map(p => p.id)))
+
   // Use context quotas for sidebar mini bars + alert ribbon (always-fresh latest)
   const latestCtx = latestQuotas(contextQuotas)
   // Rolled-up version for alert ribbon (same filtering as quota cards)
-  const latestCtxAlert = PROVIDER_IDS.flatMap((id) => {
+  const latestCtxAlert = providerIds.flatMap((id) => {
     const rows = latestCtx.filter((q) => q.provider_id === id)
-    if (id === "gemini") return rollupGeminiQuotas(rows)
-    if (id === "copilot") return filterCopilotQuotas(rows)
-    if (id === "claude") return filterClaudeQuotas(rows)
+    const baseId = id.split(":")[0]
+    if (baseId === "gemini") return rollupGeminiQuotas(rows)
+    if (baseId === "copilot") return filterCopilotQuotas(rows)
+    if (baseId === "claude") return filterClaudeQuotas(rows)
     return rows
   })
   // Use dashboard quotas for per-provider quota cards
@@ -184,12 +188,7 @@ export function Overview(): React.JSX.Element {
   const worstPct = latestCtxAlert.length > 0 ? Math.max(...latestCtxAlert.map((q) => q.used_percent ?? 0)) : 0
   const worstStatus = statusFor(worstPct)
 
-  const allTimeSeries = [
-    ...timeSeriesByProvider.gemini,
-    ...timeSeriesByProvider.codex,
-    ...timeSeriesByProvider.copilot,
-    ...timeSeriesByProvider.claude,
-  ]
+  const allTimeSeries = Object.values(timeSeriesByProvider).flat()
 
   const sessionsFiltered =
     sessionsProvider === "all"
@@ -203,12 +202,13 @@ export function Overview(): React.JSX.Element {
   )
 
   // Build per-provider visible quotas for quota cards
-  const quotasByProvider = PROVIDER_IDS.map((id) => {
+  const quotasByProvider = providerIds.map((id) => {
     const rows = latest.filter((q) => q.provider_id === id)
+    const baseId = id.split(":")[0]
     let visible: QuotaRow[]
-    if (id === "copilot") visible = filterCopilotQuotas(rows)
-    else if (id === "gemini") visible = rollupGeminiQuotas(rows)
-    else if (id === "claude") visible = filterClaudeQuotas(rows)
+    if (baseId === "copilot") visible = filterCopilotQuotas(rows)
+    else if (baseId === "gemini") visible = rollupGeminiQuotas(rows)
+    else if (baseId === "claude") visible = filterClaudeQuotas(rows)
     else visible = rows
     const worst = visible.length > 0 ? Math.max(...visible.map((q) => q.used_percent ?? 0)) : 0
     return { id, visible, worst }
@@ -343,7 +343,8 @@ export function Overview(): React.JSX.Element {
               <span>{range} · all providers</span>
             </div>
             <div className="kpi-providers">
-              {PROVIDER_IDS.map((id) => {
+              {providerIds.map((id) => {
+                const baseId = id.split(":")[0]
                 const row = providerTotals.find((p) => p.bucket === id)
                 const value = row?.total_tokens ?? 0
                 const pct = totalTokens > 0 ? (value / totalTokens) * 100 : 0
@@ -351,10 +352,10 @@ export function Overview(): React.JSX.Element {
                   <div
                     key={id}
                     className="kpi-providers-row"
-                    style={{ ["--c" as string]: PROVIDER_COLOR_VARS[id], ["--w" as string]: pct + "%" }}
+                    style={{ ["--c" as string]: PROVIDER_COLOR_VARS[baseId] || "var(--fg-1)", ["--w" as string]: pct + "%" }}
                   >
                     <span className="dot"></span>
-                    <span className="name">{PROVIDER_NAMES[id]}</span>
+                    <span className="name">{formatProviderName(id)}</span>
                     <span className="bar"><i></i></span>
                     <span className="v" style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
                       <span>{formatLargeNumber(value)}</span>
@@ -379,28 +380,30 @@ export function Overview(): React.JSX.Element {
             {quotasByProvider
               .filter(({ visible }) => visible.length > 0)
               .map(({ id, visible, worst }) => {
+                const baseId = id.split(":")[0]
                 const cardStatus = statusFor(worst)
-                const color = PROVIDER_COLOR_VARS[id]
+                const color = PROVIDER_COLOR_VARS[baseId] || "var(--fg-1)"
+                const colorHex = PROVIDER_COLORS_HEX[baseId] || "#888888"
                 return (
                   <div
                     key={id}
                     className={`quota-card${cardStatus === "crit" ? " crit" : cardStatus === "warn" ? " warn" : ""}`}
-                    style={{ ["--c" as string]: color, ["--c-soft" as string]: `${PROVIDER_COLORS_HEX[id]}22` }}
+                    style={{ ["--c" as string]: color, ["--c-soft" as string]: `${colorHex}22` }}
                   >
                     <div className="quota-card-head">
                       <div
                         className="quota-card-mark"
-                        style={{ background: `${PROVIDER_COLORS_HEX[id]}18` }}
+                        style={{ background: `${colorHex}18` }}
                       >
                         <img
-                          src={PROVIDER_LOGOS[id]}
+                          src={PROVIDER_LOGOS[baseId] || "/logos/default.png"}
                           width={28}
                           height={28}
-                          alt={PROVIDER_NAMES[id]}
+                          alt={formatProviderName(id)}
                         />
                       </div>
                       <div>
-                        <div className="quota-card-name">{PROVIDER_NAMES[id]}</div>
+                        <div className="quota-card-name">{formatProviderName(id)}</div>
                         <div className="quota-card-sub">{visible.length} quota{visible.length > 1 ? "s" : ""}</div>
                       </div>
                       <button
@@ -468,9 +471,9 @@ export function Overview(): React.JSX.Element {
                   onChange={(e) => setPieProvider(e.target.value)}
                 >
                   <option value="all">All providers</option>
-                  {PROVIDER_IDS.map((id) => (
+                  {providerIds.map((id) => (
                     <option key={id} value={id}>
-                      {PROVIDER_NAMES[id]}
+                      {formatProviderName(id)}
                     </option>
                   ))}
                 </select>
@@ -481,7 +484,7 @@ export function Overview(): React.JSX.Element {
                 rows={
                   pieProvider === "all"
                     ? allTimeSeries
-                    : timeSeriesByProvider[pieProvider as ProviderId]
+                    : timeSeriesByProvider[pieProvider] || []
                 }
               />
             </div>
@@ -513,14 +516,14 @@ export function Overview(): React.JSX.Element {
                   className="select"
                   value={topProjectsProvider}
                   onChange={(e) => {
-                    setTopProjectsProvider(e.target.value as ProviderId | "all")
+                    setTopProjectsProvider(e.target.value)
                     setTopProjectsPage(0)
                   }}
                 >
                   <option value="all">All providers</option>
-                  {PROVIDER_IDS.map((id) => (
+                  {providerIds.map((id) => (
                     <option key={id} value={id}>
-                      {PROVIDER_NAMES[id]}
+                      {formatProviderName(id)}
                     </option>
                   ))}
                 </select>
@@ -614,12 +617,13 @@ export function Overview(): React.JSX.Element {
                 </thead>
                 <tbody>
                   {providers.map((p) => {
+                    const baseId = p.id.split(":")[0]
                     const pQuotas = latest.filter((q) => q.provider_id === p.id)
                     const worst = pQuotas.length > 0
                       ? Math.max(...pQuotas.map((q) => q.used_percent ?? 0))
                       : 0
                     const status = statusFor(worst)
-                    const color = PROVIDER_COLOR_VARS[p.id]
+                    const color = PROVIDER_COLOR_VARS[baseId] || "var(--fg-1)"
                     return (
                       <tr
                         key={p.id}
@@ -639,7 +643,7 @@ export function Overview(): React.JSX.Element {
                               }}
                             ></span>
                             <span style={{ color: "var(--fg-1)", fontWeight: 500 }}>
-                              {PROVIDER_NAMES[p.id]}
+                              {formatProviderName(p.id)}
                             </span>
                           </div>
                         </td>
@@ -690,12 +694,12 @@ export function Overview(): React.JSX.Element {
                   setSessionsPage(0)
                 }}
               >
-                <option value="all">All providers</option>
-                {PROVIDER_IDS.map((id) => (
-                  <option key={id} value={id}>
-                    {PROVIDER_NAMES[id]}
-                  </option>
-                ))}
+                  <option value="all">All providers</option>
+                  {providerIds.map((id) => (
+                    <option key={id} value={id}>
+                      {formatProviderName(id)}
+                    </option>
+                  ))}
               </select>
             </div>
           </div>
@@ -718,8 +722,8 @@ export function Overview(): React.JSX.Element {
                   {pagedSessions.map((s) => (
                     <tr key={s.id}>
                       <td>
-                        <span className={`tag ${s.provider_id}`}>
-                          {PROVIDER_NAMES[s.provider_id]}
+                        <span className={`tag ${s.provider_id.split(":")[0]}`}>
+                          {formatProviderName(s.provider_id)}
                         </span>
                       </td>
                       <td style={{ color: "var(--fg-1)" }}>

@@ -1,4 +1,4 @@
-export type ProviderId = "gemini" | "codex" | "copilot" | "claude"
+export type ProviderId = string
 
 export interface ProviderConfig {
   home_path: string
@@ -90,9 +90,9 @@ export interface ModelPricing {
 
 export interface ConfigShape {
   daemon: DaemonConfig
-  gemini:  { enabled: boolean; home_path: string; active_probe_enabled?: boolean; passive_sync_enabled?: boolean; safe_options: Record<string, unknown> }
-  codex:   { enabled: boolean; home_path: string; active_probe_enabled?: boolean; passive_sync_enabled?: boolean; safe_options: Record<string, unknown> }
-  copilot: { enabled: boolean; home_path: string; active_probe_enabled?: boolean; passive_sync_enabled?: boolean; safe_options: Record<string, unknown> }
-  claude:  { enabled: boolean; home_path: string; active_probe_enabled?: boolean; passive_sync_enabled?: boolean; safe_options: Record<string, unknown> }
+  gemini: Record<string, ProviderConfig>
+  codex: Record<string, ProviderConfig>
+  copilot: Record<string, ProviderConfig>
+  claude: Record<string, ProviderConfig>
   pricing: Record<string, ModelPricing>
 }

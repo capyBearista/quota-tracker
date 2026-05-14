@@ -7,17 +7,8 @@ import { latestQuotas } from "../../utils"
 import type { ProviderId } from "../../types"
 import { rollupGeminiQuotas, filterCopilotQuotas, filterClaudeQuotas } from "../ui/QuotaPanel"
 
-const PROVIDER_IDS: ProviderId[] = ["gemini", "codex", "copilot", "claude"]
-
-const PROVIDER_NAMES: Record<ProviderId, string> = {
-  gemini: "Gemini",
-  codex: "Codex",
-  copilot: "Copilot",
-  claude: "Claude",
-}
-
 // Logo paths — claude uses claude-code.png
-const PROVIDER_LOGOS: Record<ProviderId, string> = {
+const PROVIDER_LOGOS: Record<string, string> = {
   gemini: "/logos/gemini.png",
   codex: "/logos/codex.png",
   copilot: "/logos/copilot.png",
@@ -72,6 +63,18 @@ export function Sidebar(): React.JSX.Element {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
+  }
+
+  const providerIds = Array.from(new Set(providers.map(p => p.id)))
+  
+  function formatProviderName(id: string): string {
+    const parts = id.split(":")
+    const base = parts[0]
+    const baseName = base.charAt(0).toUpperCase() + base.slice(1)
+    if (parts.length > 1 && parts[1] !== "default") {
+      return `${baseName} (${parts[1]})`
+    }
+    return baseName
   }
 
   const updatePopupNode = updatePopup
@@ -149,11 +152,12 @@ export function Sidebar(): React.JSX.Element {
         <span>Providers</span>
       </div>
       <div className="nav">
-        {PROVIDER_IDS.map((id) => {
+        {providerIds.map((id) => {
+          const baseId = id.split(":")[0]
           let providerQuotas = latest.filter((q) => q.provider_id === id)
-          if (id === "claude") providerQuotas = filterClaudeQuotas(providerQuotas)
-          else if (id === "copilot") providerQuotas = filterCopilotQuotas(providerQuotas)
-          else if (id === "gemini") providerQuotas = rollupGeminiQuotas(providerQuotas)
+          if (baseId === "claude") providerQuotas = filterClaudeQuotas(providerQuotas)
+          else if (baseId === "copilot") providerQuotas = filterCopilotQuotas(providerQuotas)
+          else if (baseId === "gemini") providerQuotas = rollupGeminiQuotas(providerQuotas)
 
           const worst =
             providerQuotas.length > 0
@@ -169,15 +173,15 @@ export function Sidebar(): React.JSX.Element {
             >
               <span className="nav-provider-logo">
                 <img
-                  src={PROVIDER_LOGOS[id]}
+                  src={PROVIDER_LOGOS[baseId] || "/logos/default.png"}
                   width={18}
                   height={18}
-                  alt={PROVIDER_NAMES[id]}
+                  alt={formatProviderName(id)}
                 />
               </span>
               <div className="nav-provider-body">
                 <div className="nav-provider-name">
-                  <span>{PROVIDER_NAMES[id]}</span>
+                  <span>{formatProviderName(id)}</span>
                   {providerQuotas.length > 0 && (
                     <span
                       className={`nav-provider-pct${status === "crit" ? " crit" : status === "warn" ? " warn" : ""}`}

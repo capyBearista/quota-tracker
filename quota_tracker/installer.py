@@ -57,7 +57,13 @@ def merge_config(base: AppConfig, updates: dict[str, object]) -> AppConfig:
         provider_updates = updates.get(provider)
         if not isinstance(provider_updates, dict):
             continue
-        target = getattr(base, provider)
+        target_dict = getattr(base, provider)
+        target = target_dict.get("default")
+        if not target:
+            from quota_tracker.config import ProviderConfig
+
+            target = ProviderConfig(home_path=f"~/.{provider}")
+            target_dict["default"] = target
         if "enabled" in provider_updates:
             target.enabled = bool(provider_updates["enabled"])
         if "home_path" in provider_updates:
@@ -73,7 +79,13 @@ def _run_interactive_flow(config: AppConfig, home: Path) -> AppConfig:
     # ── Step 1/3: Detect providers ──────────────────────────────────────────
     ui.step(1, 3, "Detect providers")
     for provider in ("gemini", "codex", "copilot", "claude"):
-        provider_cfg = getattr(config, provider)
+        provider_dict = getattr(config, provider)
+        provider_cfg = provider_dict.get("default")
+        if not provider_cfg:
+            from quota_tracker.config import ProviderConfig
+
+            provider_cfg = ProviderConfig(home_path=f"~/.{provider}")
+            provider_dict["default"] = provider_cfg
         if provider in detected:
             ui.success_check(f"{provider:<8}  {detected[provider]:<20}  found")
         else:
@@ -82,7 +94,13 @@ def _run_interactive_flow(config: AppConfig, home: Path) -> AppConfig:
     # ── Step 2/3: Configure providers ───────────────────────────────────────
     ui.step(2, 3, "Configure providers")
     for provider in ("gemini", "codex", "copilot", "claude"):
-        provider_cfg = getattr(config, provider)
+        provider_dict = getattr(config, provider)
+        provider_cfg = provider_dict.get("default")
+        if not provider_cfg:
+            from quota_tracker.config import ProviderConfig
+
+            provider_cfg = ProviderConfig(home_path=f"~/.{provider}")
+            provider_dict["default"] = provider_cfg
         detected_home = detected.get(provider)
         default_enabled = detected_home is not None
 
@@ -107,9 +125,11 @@ def _run_interactive_flow(config: AppConfig, home: Path) -> AppConfig:
     print()
     summary_lines = []
     for provider in ("gemini", "codex", "copilot", "claude"):
-        pcfg = getattr(config, provider)
-        state = "enabled" if pcfg.enabled else "disabled"
-        summary_lines.append(f"{provider:<8}  {state:<8}  {pcfg.home_path}")
+        provider_dict = getattr(config, provider)
+        for account_name, pcfg in provider_dict.items():
+            state = "enabled" if pcfg.enabled else "disabled"
+            provider_id = f"{provider}:{account_name}" if account_name != "default" else provider
+            summary_lines.append(f"{provider_id:<8}  {state:<8}  {pcfg.home_path}")
     summary_lines.append("")
     summary_lines.append(f"host     {config.daemon.web_host}:{config.daemon.web_port}")
     summary_lines.append(f"sync     every {config.daemon.sync_interval_minutes} min")
@@ -151,17 +171,21 @@ def sync_provider_rows_from_config(config: AppConfig) -> None:
     try:
         apply_migrations(conn)
         for provider in ("gemini", "codex", "copilot", "claude"):
-            provider_cfg = getattr(config, provider)
-            row = get_provider_row(conn, provider)
-            current = dict(row["config"]) if row is not None else {}
-            current["home_path"] = provider_cfg.home_path
-            current["active_probe_enabled"] = True
-            current["passive_sync_enabled"] = provider_cfg.passive_sync_enabled
-            current.setdefault("high_water_marks", {})
-            safe_options = dict(current.get("safe_options", {}))
-            safe_options.update(provider_cfg.safe_options)
-            current["safe_options"] = safe_options
-            update_provider_row(conn, provider, enabled=provider_cfg.enabled, config=current)
+            provider_dict = getattr(config, provider)
+            for account_name, provider_cfg in provider_dict.items():
+                provider_id = (
+                    f"{provider}:{account_name}" if account_name != "default" else provider
+                )
+                row = get_provider_row(conn, provider_id)
+                current = dict(row["config"]) if row is not None else {}
+                current["home_path"] = provider_cfg.home_path
+                current["active_probe_enabled"] = True
+                current["passive_sync_enabled"] = provider_cfg.passive_sync_enabled
+                current.setdefault("high_water_marks", {})
+                safe_options = dict(current.get("safe_options", {}))
+                safe_options.update(provider_cfg.safe_options)
+                current["safe_options"] = safe_options
+                update_provider_row(conn, provider_id, enabled=provider_cfg.enabled, config=current)
         conn.commit()
     finally:
         conn.close()

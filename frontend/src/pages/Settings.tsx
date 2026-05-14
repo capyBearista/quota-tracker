@@ -3,16 +3,7 @@ import { ThemeToggle } from "../components/ui/ThemeToggle"
 import { useConfig } from "../hooks/useConfig"
 import type { ModelPricing, ProviderId, ProviderSummary } from "../types"
 
-const providerLabels: Record<ProviderId, string> = {
-  gemini: "Gemini",
-  codex: "Codex",
-  copilot: "Copilot",
-  claude: "Claude",
-}
-
-const PROVIDER_IDS: ProviderId[] = ["gemini", "codex", "copilot", "claude"]
-
-const PROVIDER_COLOR_VARS: Record<ProviderId, string> = {
+const PROVIDER_COLOR_VARS: Record<string, string> = {
   gemini: "var(--gemini)",
   codex: "var(--codex)",
   copilot: "var(--copilot)",
@@ -43,12 +34,7 @@ export function Settings(): React.JSX.Element {
   const [pricingSaving, setPricingSaving] = useState(false)
   const [pricingSaved, setPricingSaved] = useState(false)
 
-  const [providerForms, setProviderForms] = useState<Record<ProviderId, ProviderFormState>>({
-    gemini: { enabled: true, home_path: "~/.gemini" },
-    codex: { enabled: true, home_path: "~/.codex" },
-    copilot: { enabled: true, home_path: "~/.copilot" },
-    claude: { enabled: true, home_path: "~/.claude" },
-  })
+  const [providerForms, setProviderForms] = useState<Record<string, ProviderFormState>>({})
 
   const [actionBusy, setActionBusy] = useState<string | null>(null)
 
@@ -65,11 +51,11 @@ export function Settings(): React.JSX.Element {
 
   useEffect(() => {
     if (providers.length > 0) {
-      const next: Partial<Record<ProviderId, ProviderFormState>> = {}
+      const next: Record<string, ProviderFormState> = {}
       providers.forEach((p) => {
         next[p.id] = providerToForm(p)
       })
-      setProviderForms((prev) => ({ ...prev, ...next }))
+      setProviderForms(next)
     }
   }, [providers])
 
@@ -103,8 +89,9 @@ export function Settings(): React.JSX.Element {
     }))
   }
 
-  async function handleSaveProvider(id: ProviderId): Promise<void> {
+  async function handleSaveProvider(id: string): Promise<void> {
     const form = providerForms[id]
+    if (!form) return
     setActionBusy(`save-${id}`)
     try {
       await updateProvider(id, { enabled: form.enabled, home_path: form.home_path })
@@ -113,7 +100,7 @@ export function Settings(): React.JSX.Element {
     }
   }
 
-  async function handleSync(id: ProviderId): Promise<void> {
+  async function handleSync(id: string): Promise<void> {
     setActionBusy(`sync-${id}`)
     try {
       await scanProvider(id)
@@ -123,7 +110,7 @@ export function Settings(): React.JSX.Element {
   }
 
   function setProviderField<K extends keyof ProviderFormState>(
-    id: ProviderId,
+    id: string,
     field: K,
     value: ProviderFormState[K],
   ): void {
@@ -333,16 +320,23 @@ export function Settings(): React.JSX.Element {
 
         {/* Provider cards */}
         <div className="grid-2eq">
-          {PROVIDER_IDS.map((id) => {
+          {providers.map((p) => {
+            const id = p.id
+            const baseId = id.split(":")[0]
             const form = providerForms[id]
+            if (!form) return null
             const isBusy = actionBusy !== null || busy
-            const color = PROVIDER_COLOR_VARS[id]
+            const color = PROVIDER_COLOR_VARS[baseId] || "var(--fg-1)"
+            
+            const baseName = baseId.charAt(0).toUpperCase() + baseId.slice(1)
+            const parts = id.split(":")
+            const label = parts.length > 1 && parts[1] !== "default" ? `${baseName} (${parts[1]})` : baseName
 
             return (
               <div key={id} className="card">
                 <div className="card-head">
                   <span className="card-title" style={{ color }}>
-                    {providerLabels[id]}
+                    {label}
                   </span>
                   <div className="card-actions">
                     <span

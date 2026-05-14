@@ -19,7 +19,7 @@ def test_provider_selector_and_reset_marks(tmp_path: Path) -> None:
     service = DaemonService(str(db_path))
     service.migrate_and_prepare()
 
-    assert service._provider_ids("all") == ["gemini", "codex", "copilot", "claude"]
+    assert set(service._provider_ids("all")) == {"gemini", "codex", "copilot", "claude"}
     with pytest.raises(ValueError):
         service._provider_ids("x")
 

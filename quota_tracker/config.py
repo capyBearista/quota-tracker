@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from quota_tracker.paths import (
     DEFAULT_CONFIG_PATH,
@@ -121,18 +122,40 @@ class AppConfig(BaseModel):
     """Root application configuration."""
 
     daemon: DaemonConfig = Field(default_factory=DaemonConfig)
-    gemini: ProviderConfig = Field(default_factory=lambda: ProviderConfig(home_path="~/.gemini"))
-    codex: ProviderConfig = Field(default_factory=lambda: ProviderConfig(home_path="~/.codex"))
-    copilot: ProviderConfig = Field(default_factory=lambda: ProviderConfig(home_path="~/.copilot"))
-    claude: ProviderConfig = Field(default_factory=lambda: ProviderConfig(home_path="~/.claude"))
+    gemini: dict[str, ProviderConfig] = Field(
+        default_factory=lambda: {"default": ProviderConfig(home_path="~/.gemini")}
+    )
+    codex: dict[str, ProviderConfig] = Field(
+        default_factory=lambda: {"default": ProviderConfig(home_path="~/.codex")}
+    )
+    copilot: dict[str, ProviderConfig] = Field(
+        default_factory=lambda: {"default": ProviderConfig(home_path="~/.copilot")}
+    )
+    claude: dict[str, ProviderConfig] = Field(
+        default_factory=lambda: {"default": ProviderConfig(home_path="~/.claude")}
+    )
     pricing: dict[str, ModelPricing] = Field(default_factory=get_default_pricing)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_providers(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        for provider in ("gemini", "codex", "copilot", "claude"):
+            if provider in data:
+                val = data[provider]
+                if isinstance(val, dict) and "home_path" in val:
+                    data[provider] = {"default": val}
+        return data
 
 
 def _force_active_probe_enabled(config: AppConfig) -> AppConfig:
     """Keep active quota probes mandatory for every provider."""
 
     for provider in ("gemini", "codex", "copilot", "claude"):
-        getattr(config, provider).active_probe_enabled = True
+        provider_dict = getattr(config, provider)
+        for instance_cfg in provider_dict.values():
+            instance_cfg.active_probe_enabled = True
     return config
 
 

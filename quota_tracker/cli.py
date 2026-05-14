@@ -41,7 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     config_sub = config_parser.add_subparsers(dest="config_command")
     config_sub.add_parser("show")
     config_set = config_sub.add_parser("set")
-    config_set.add_argument("--provider", choices=["gemini", "codex", "copilot", "claude"])
+    config_set.add_argument("--provider")
     config_set.add_argument("--enabled", choices=["true", "false"])
     config_set.add_argument("--home-path")
     config_set.add_argument("--active-probe-enabled", choices=["true", "false"])
@@ -54,14 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
     config_set.add_argument("--log-level")
 
     scan = sub.add_parser("scan")
-    scan.add_argument(
-        "--provider", choices=["all", "gemini", "codex", "copilot", "claude"], default="all"
-    )
+    scan.add_argument("--provider", default="all")
     scan.add_argument("--full", action="store_true")
     probe = sub.add_parser("probe")
-    probe.add_argument(
-        "--provider", choices=["all", "gemini", "codex", "copilot", "claude"], default="all"
-    )
+    probe.add_argument("--provider", default="all")
     probe.add_argument("--dry-run", action="store_true")
     sub.add_parser("daemon")
     sub.add_parser("serve")
@@ -127,7 +123,14 @@ def _apply_config_set(config: AppConfig, args: argparse.Namespace) -> AppConfig:
         config.daemon.log_level = args.log_level
 
     if args.provider:
-        provider_cfg = getattr(config, args.provider)
+        base_id = args.provider.split(":")[0]
+        provider_dict = getattr(config, base_id)
+        account_name = args.provider.split(":")[1] if ":" in args.provider else "default"
+        if account_name not in provider_dict:
+            from quota_tracker.config import ProviderConfig
+
+            provider_dict[account_name] = ProviderConfig(home_path=f"~/.{base_id}")
+        provider_cfg = provider_dict[account_name]
         provider_cfg.active_probe_enabled = True
         enabled = _parse_bool(args.enabled)
         if enabled is not None:

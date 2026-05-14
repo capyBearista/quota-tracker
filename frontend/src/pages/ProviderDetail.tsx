@@ -12,36 +12,38 @@ import { useProviders } from "../contexts/ProvidersContext"
 import type { ProviderId } from "../types"
 import { basename, formatDate, formatLargeNumber, formatCost, formatRelative, latestQuotas } from "../utils"
 
-const PROVIDER_NAMES: Record<ProviderId, string> = {
-  gemini: "Gemini",
-  codex: "Codex",
-  copilot: "Copilot",
-  claude: "Claude",
-}
-
-const PROVIDER_LOGOS: Record<ProviderId, string> = {
+const PROVIDER_LOGOS: Record<string, string> = {
   gemini: "/logos/gemini.png",
   codex: "/logos/codex.png",
   copilot: "/logos/copilot.png",
   claude: "/logos/claude-code.png",
 }
 
-const PROVIDER_COLOR_VARS: Record<ProviderId, string> = {
+const PROVIDER_COLOR_VARS: Record<string, string> = {
   gemini: "var(--gemini)",
   codex: "var(--codex)",
   copilot: "var(--copilot)",
   claude: "var(--claude)",
 }
 
-const PROVIDER_COLORS_HEX: Record<ProviderId, string> = {
+const PROVIDER_COLORS_HEX: Record<string, string> = {
   gemini: "#4F8DF7",
   codex: "#10B981",
   copilot: "#F59E0B",
   claude: "#D97757",
 }
 
-const VALID_PROVIDERS: ProviderId[] = ["gemini", "codex", "copilot", "claude"]
 const SESSION_PAGE_SIZE = 5
+
+function formatProviderName(id: string): string {
+  const parts = id.split(":")
+  const base = parts[0]
+  const baseName = base.charAt(0).toUpperCase() + base.slice(1)
+  if (parts.length > 1 && parts[1] !== "default") {
+    return `${baseName} (${parts[1]})`
+  }
+  return baseName
+}
 
 function statusFor(pct: number): "crit" | "warn" | "ok" {
   if (pct >= 95) return "crit"
@@ -56,9 +58,7 @@ export function ProviderDetail(): React.JSX.Element {
   const [selectedModel, setSelectedModel] = useState<string>("all")
   const [chartMode, setChartMode] = useState<"tokens" | "cost">("tokens")
 
-  const providerId: ProviderId | null = VALID_PROVIDERS.includes(id as ProviderId)
-    ? (id as ProviderId)
-    : null
+  const providerId: string | null = id || null
 
   const handleRange = (next: Range) => {
     setRange(next)
@@ -97,23 +97,24 @@ export function ProviderDetail(): React.JSX.Element {
     )
   }
 
-  const providerColor = PROVIDER_COLOR_VARS[providerId]
-  const providerColorHex = PROVIDER_COLORS_HEX[providerId]
+  const baseId = providerId.split(":")[0]
+  const providerColor = PROVIDER_COLOR_VARS[baseId] || "var(--fg-1)"
+  const providerColorHex = PROVIDER_COLORS_HEX[baseId] || "#888888"
   const provider = providers.find((p) => p.id === providerId)
   const latest = latestQuotas(quotas).filter((q) => q.provider_id === providerId)
   const visibleLatest =
-    providerId === "claude"
+    baseId === "claude"
       ? filterClaudeQuotas(latest)
-      : providerId === "copilot"
+      : baseId === "copilot"
         ? filterCopilotQuotas(latest)
-        : providerId === "gemini"
+        : baseId === "gemini"
           ? rollupGeminiQuotas(latest)
           : latest
   const totalTokens = timeSeries.reduce((s, r) => s + r.total_tokens, 0)
   const totalCost = timeSeries.reduce((s, r) => s + r.estimated_cost, 0)
 
   let historyRows = quotaHistory.filter((q) => q.provider_id === providerId)
-  if (providerId === "gemini") {
+  if (baseId === "gemini") {
     const byTs = new Map<string, typeof historyRows>()
     for (const r of historyRows) {
       if (!byTs.has(r.timestamp)) byTs.set(r.timestamp, [])
@@ -125,11 +126,11 @@ export function ProviderDetail(): React.JSX.Element {
     }
   }
 
-  if (providerId === "claude") {
+  if (baseId === "claude") {
     historyRows = historyRows.filter((r) => r.quota_name !== "extra_usage")
   }
 
-  if (providerId === "codex") {
+  if (baseId === "codex") {
     historyRows = historyRows.filter((r) => r.source === "active_probe")
   }
 
@@ -176,7 +177,7 @@ export function ProviderDetail(): React.JSX.Element {
           </Link>
           <span className="crumb-sep">/</span>
           <span className="crumb-title" style={{ color: providerColor }}>
-            {PROVIDER_NAMES[providerId]}
+            {formatProviderName(providerId)}
           </span>
           <span
             className={`crumb-status${worstStatus === "crit" ? " crit" : worstStatus === "warn" ? " warn" : ""}`}
@@ -226,14 +227,14 @@ export function ProviderDetail(): React.JSX.Element {
             style={{ background: `${providerColorHex}18` }}
           >
             <img
-              src={PROVIDER_LOGOS[providerId]}
-              alt={PROVIDER_NAMES[providerId]}
+              src={PROVIDER_LOGOS[baseId] || "/logos/default.png"}
+              alt={formatProviderName(providerId)}
               style={{ width: 52, height: 52, objectFit: "contain" }}
             />
           </div>
           <div>
             <div className="provider-page-title">
-              <span style={{ color: providerColor }}>{PROVIDER_NAMES[providerId]}</span>
+              <span style={{ color: providerColor }}>{formatProviderName(providerId)}</span>
               <span
                 className={`crumb-status${worstStatus === "crit" ? " crit" : worstStatus === "warn" ? " warn" : ""}`}
               >
@@ -519,7 +520,7 @@ export function ProviderDetail(): React.JSX.Element {
           </div>
           {sessions.length === 0 ? (
             <div style={{ padding: "24px 20px", textAlign: "center", color: "var(--fg-3)", fontSize: 13 }}>
-              No sessions for {PROVIDER_NAMES[providerId]} in this range
+              No sessions for {formatProviderName(providerId)} in this range
             </div>
           ) : (
             <>

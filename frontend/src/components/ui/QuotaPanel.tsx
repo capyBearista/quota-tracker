@@ -3,22 +3,23 @@ import type { ProviderId, QuotaRow } from "../../types"
 import { formatDate } from "../../utils"
 
 interface QuotaPanelProps {
-  providerId: ProviderId
+  providerId: string
   /** Already deduped to latest row per quota_name */
   latest: QuotaRow[]
   /** CSS color value for the provider (e.g. "var(--gemini)") */
   providerColor?: string
 }
 
-function inferredWindowMinutes(providerId: ProviderId, quotaName: string): number | null {
+function inferredWindowMinutes(providerId: string, quotaName: string): number | null {
   const lower = quotaName.toLowerCase()
+  const baseId = providerId.split(":")[0]
 
   // Provider-specific known keys.
-  if (providerId === "codex") {
+  if (baseId === "codex") {
     if (lower === "secondary") return 60 * 24 * 7 // weekly
     if (lower === "primary") return 60 * 5 // 5 hours
   }
-  if (providerId === "copilot") {
+  if (baseId === "copilot") {
     if (lower.includes("premium_interactions") || lower.includes("premium-interactions")) {
       return 60 * 24 * 30
     }
@@ -33,7 +34,7 @@ function inferredWindowMinutes(providerId: ProviderId, quotaName: string): numbe
   return null
 }
 
-function sortQuotasBiggestFirst(providerId: ProviderId, rows: QuotaRow[]): QuotaRow[] {
+function sortQuotasBiggestFirst(providerId: string, rows: QuotaRow[]): QuotaRow[] {
   const scored = rows.map((q, idx) => {
     const win =
       typeof q.window_minutes === "number"
@@ -107,24 +108,25 @@ export function rollupGeminiQuotas(rows: QuotaRow[]): QuotaRow[] {
 }
 
 /** Map raw quota_name to a human-friendly display label per provider. */
-export function displayLabel(providerId: ProviderId, quotaName: string): string {
-  if (providerId === "copilot") {
+export function displayLabel(providerId: string, quotaName: string): string {
+  const baseId = providerId.split(":")[0]
+  if (baseId === "copilot") {
     if (quotaName.includes("premium_interactions") || quotaName.includes("premium-interactions"))
       return "Monthly"
     if (quotaName.includes("monthly")) return "Monthly"
     if (quotaName.includes("weekly")) return "Weekly"
     return quotaName
   }
-  if (providerId === "codex") {
+  if (baseId === "codex") {
     if (quotaName === "primary") return "5 hours"
     if (quotaName === "secondary") return "Weekly"
     return quotaName
   }
-  if (providerId === "gemini") {
+  if (baseId === "gemini") {
     const label = GEMINI_FAMILY_LABEL[quotaName as GeminiFamily]
     return label ?? quotaName
   }
-  if (providerId === "claude") {
+  if (baseId === "claude") {
     if (quotaName === "seven_day_omelette") return "Claude Design"
     if (quotaName === "weekly") return "Weekly"
     if (quotaName === "5h") return "5h"
@@ -141,7 +143,8 @@ function statusFor(pct: number): "crit" | "warn" | "ok" {
 
 export function formatRequestQuota(q: QuotaRow): string | null {
   const rd = q.raw_data || {}
-  if (q.provider_id === "copilot" && rd.entitlement_requests !== undefined) {
+  const baseId = q.provider_id.split(":")[0]
+  if (baseId === "copilot" && rd.entitlement_requests !== undefined) {
     const limit = Number(rd.entitlement_requests)
     if (limit <= 0) return null
     const used = Math.round(limit * ((q.used_percent ?? 0) / 100))
@@ -156,13 +159,14 @@ export function QuotaPanel({
   providerColor,
 }: QuotaPanelProps): React.JSX.Element {
   let visible: QuotaRow[]
-  if (providerId === "copilot") {
+  const baseId = providerId.split(":")[0]
+  if (baseId === "copilot") {
     visible = sortQuotasBiggestFirst(providerId, filterCopilotQuotas(latest))
-  } else if (providerId === "gemini") {
+  } else if (baseId === "gemini") {
     visible = rollupGeminiQuotas(latest)
-  } else if (providerId === "codex") {
+  } else if (baseId === "codex") {
     visible = sortQuotasBiggestFirst(providerId, latest)
-  } else if (providerId === "claude") {
+  } else if (baseId === "claude") {
     visible = filterClaudeQuotas(latest)
   } else {
     visible = latest
