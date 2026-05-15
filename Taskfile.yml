@@ -152,13 +152,15 @@ tasks:
 
   screenshot:
     desc: "capture overview screenshot into assets/screenshots/"
+    vars:
+      PORT: '{{.PORT | default "8787"}}'
     cmds:
       - mkdir -p "{{.ROOT}}/assets/screenshots"
       - |
         nix-shell -p nodejs chromium --run '
           tmp=$(mktemp -d)
           npm install --prefix "$tmp" playwright >/dev/null
-          CHROMIUM_BIN=$(which chromium) NODE_PATH="$tmp/node_modules" node frontend/screenshot.cjs "{{.ROOT}}/assets/screenshots"
+          CHROMIUM_BIN=$(which chromium) QUOTA_TRACKER_PORT="{{.PORT}}" NODE_PATH="$tmp/node_modules" node frontend/screenshot.cjs "{{.ROOT}}/assets/screenshots"
           rm -rf "$tmp"
         '
 
