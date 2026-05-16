@@ -14,6 +14,7 @@ from quota_tracker.db import (
     TokenUsageRecord,
     apply_migrations,
     connect_db,
+    ensure_default_providers,
     get_provider_row,
     insert_quota,
     insert_token_usage,
@@ -76,6 +77,7 @@ class DaemonService:
         conn = connect_db(self.db_path)
         try:
             apply_migrations(conn)
+            ensure_default_providers(conn)
         finally:
             conn.close()
         LOGGER.info(

@@ -52,7 +52,6 @@ function buildQuery(params: Record<string, string | number | undefined>): string
   return `?${entries.map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join("&")}`
 }
 
-const PROVIDER_IDS: ProviderId[] = ["gemini", "codex", "copilot", "claude"]
 const PROJECT_PAGE_SIZE = 5
 
 function timeSeriesGroupByFor(range: Range): "hour" | "day" {
@@ -74,7 +73,7 @@ export function useDashboard(
   const [timeSeriesGroupBy, setTimeSeriesGroupBy] = useState<"hour" | "day">("hour")
   const [timeSeriesByProvider, setTimeSeriesByProvider] = useState<
     Record<ProviderId, UsageRow[]>
-  >({ gemini: [], codex: [], copilot: [], claude: [] })
+  >({})
   const [modelUsage, setModelUsage] = useState<UsageRow[]>([])
   const [providerTotals, setProviderTotals] = useState<UsageRow[]>([])
   const [projectUsage, setProjectUsage] = useState<ProjectUsageRow[]>([])
@@ -105,35 +104,16 @@ export function useDashboard(
 
     const start = rangeStartIso(range) ?? undefined
     const scope = { provider_id: providerId, start }
-    // Apply model filter only to the time-series fetch.
     const modelName = modelFilter && modelFilter !== "all" ? modelFilter : undefined
     const groupByTime = timeSeriesGroupByFor(range)
     setTimeSeriesGroupBy(groupByTime)
 
-    const modelCalls: Promise<{ items: UsageRow[] }>[] = []
-    if (providerId) {
-      modelCalls.push(
-        apiGet<{ items: UsageRow[] }>(
-          `/api/token-usage${buildQuery({ ...scope, group_by: "model" })}`,
-        ),
-      )
-    } else {
-      // Overview: fetch per-provider model usage so we can keep provider identity for coloring.
-      for (const pid of PROVIDER_IDS) {
-        modelCalls.push(
-          apiGet<{ items: UsageRow[] }>(
-            `/api/token-usage${buildQuery({ provider_id: pid, start, group_by: "model" })}`,
-          ),
-        )
-      }
-    }
-
-    const calls: Promise<unknown>[] = [
+    // Phase 1: common data + provider list
+    const phase1Calls: Promise<unknown>[] = [
       apiGet<{ providers: ProviderSummary[] }>("/api/providers"),
       apiGet<{ items: QuotaRow[] }>(
         `/api/quotas${buildQuery({ provider_id: providerId, limit: 200 })}`,
       ),
-      // Fetch the newest points first, then sort ascending for chart rendering.
       apiGet<{ items: QuotaRow[] }>(
         `/api/quotas${buildQuery({
           provider_id: providerId,
@@ -147,71 +127,78 @@ export function useDashboard(
       apiGet<{ items: UsageRow[] }>(
         `/api/token-usage${buildQuery({ ...scope, model_name: modelName, group_by: groupByTime })}`,
       ),
-      ...modelCalls,
       apiGet<{ items: UsageRow[] }>(
         `/api/token-usage${buildQuery({ start, group_by: "provider" })}`,
       ),
     ]
 
-    // Per-provider series only for the all-providers (overview) view.
-    if (!providerId) {
-      for (const pid of PROVIDER_IDS) {
-        calls.push(
-          apiGet<{ items: UsageRow[] }>(
-            `/api/token-usage${buildQuery({ provider_id: pid, start, group_by: groupByTime })}`,
-          ),
-        )
-      }
-    }
-
-    Promise.all(calls)
-      .then((results) => {
+    Promise.all(phase1Calls)
+      .then((phase1Results) => {
         if (cancelled) return
-        const [provRes, quotaRes, quotaHistRes, sessRes, tsRes, ...rest] = results as [
+        const [provRes, quotaRes, quotaHistRes, sessRes, tsRes, providerRes] = phase1Results as [
           { providers: ProviderSummary[] },
           { items: QuotaRow[] },
           { items: QuotaRow[] },
           { items: SessionRow[] },
           { items: UsageRow[] },
-          ...unknown[],
+          { items: UsageRow[] },
         ]
-        let idx = 0
-        const modelResults = rest.slice(idx, idx + modelCalls.length) as { items: UsageRow[] }[]
-        idx += modelCalls.length
-        const providerRes = rest[idx] as { items: UsageRow[] }
-        idx += 1
-        const providerSeries = rest.slice(idx) as { items: UsageRow[] }[]
 
         setProviders(provRes.providers)
         setQuotas(quotaRes.items)
         setQuotaHistory([...quotaHistRes.items].sort((a, b) => a.timestamp.localeCompare(b.timestamp)))
         setSessions(sessRes.items)
         setTimeSeries(tsRes.items)
+        setProviderTotals(providerRes.items)
 
+        // Derive provider IDs dynamically from the server response.
+        const allProviderIds = provRes.providers.map((p) => p.id)
+
+        // Phase 2: per-provider fetches (only for overview)
         if (providerId) {
-          const rows = modelResults[0]?.items ?? []
-          setModelUsage(rows.map((r) => ({ ...r, provider_id: providerId })))
-        } else {
+          // Single provider detail: fetch per-model usage for this provider.
+          return apiGet<{ items: UsageRow[] }>(
+            `/api/token-usage${buildQuery({ ...scope, group_by: "model" })}`,
+          ).then((modelRes) => {
+            if (cancelled) return
+            setModelUsage(modelRes.items.map((r) => ({ ...r, provider_id: providerId })))
+            setTimeSeriesByProvider({})
+          })
+        }
+
+        // Overview: fetch per-provider model usage + per-provider time series.
+        const modelCalls = allProviderIds.map((pid) =>
+          apiGet<{ items: UsageRow[] }>(
+            `/api/token-usage${buildQuery({ provider_id: pid, start, group_by: "model" })}`,
+          ),
+        )
+        const tsCalls = allProviderIds.map((pid) =>
+          apiGet<{ items: UsageRow[] }>(
+            `/api/token-usage${buildQuery({ provider_id: pid, start, group_by: groupByTime })}`,
+          ),
+        )
+
+        return Promise.all([...modelCalls, ...tsCalls]).then((results) => {
+          if (cancelled) return
+          const modelResults = results.slice(0, modelCalls.length) as { items: UsageRow[] }[]
+          const tsResults = results.slice(modelCalls.length) as { items: UsageRow[] }[]
+
+          // Merge model usage with provider identity.
           const merged: UsageRow[] = []
-          for (let i = 0; i < PROVIDER_IDS.length; i++) {
-            const pid = PROVIDER_IDS[i]
+          for (let i = 0; i < allProviderIds.length; i++) {
+            const pid = allProviderIds[i]
             const rows = modelResults[i]?.items ?? []
             for (const row of rows) merged.push({ ...row, provider_id: pid })
           }
           setModelUsage(merged)
-        }
 
-        setProviderTotals(providerRes.items)
-        if (providerSeries.length === 4) {
-          setTimeSeriesByProvider({
-            gemini: providerSeries[0].items,
-            codex: providerSeries[1].items,
-            copilot: providerSeries[2].items,
-            claude: providerSeries[3].items,
-          })
-        } else {
-          setTimeSeriesByProvider({ gemini: [], codex: [], copilot: [], claude: [] })
-        }
+          // Build dynamic per-provider time-series map.
+          const tsByProv: Record<ProviderId, UsageRow[]> = {}
+          for (let i = 0; i < allProviderIds.length; i++) {
+            tsByProv[allProviderIds[i]] = tsResults[i]?.items ?? []
+          }
+          setTimeSeriesByProvider(tsByProv)
+        })
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load data")

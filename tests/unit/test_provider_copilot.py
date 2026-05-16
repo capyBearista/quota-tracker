@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -286,3 +287,26 @@ def test_copilot_provider_id_override(tmp_path: Path) -> None:
     p = CopilotProvider(str(tmp_path), provider_id="copilot:alt")
     r = p.passive_scan_full()
     assert r.token_usage[0]["provider_id"] == "copilot:alt"
+
+def test_copilot_active_probe_provider_id_override(tmp_path: Path) -> None:
+    # Setup mock config with token
+    cfg = {
+        "copilotTokens": {"github.com:u1": "tok"},
+        "lastLoggedInUser": {"host": "github.com", "login": "u1"}
+    }
+    (tmp_path / "config.json").write_text(json.dumps(cfg))
+    p = CopilotProvider(str(tmp_path), provider_id="copilot:alt")
+    
+    mock_headers = {
+        "x-quota-snapshot-weekly": "rem=90&rst=2026-05-16T00:00:00Z&ent=1000",
+    }
+    
+    with (
+        patch("quota_tracker.providers.copilot._resolve_copilot_api_url", return_value="https://api.github.com"),
+        patch("quota_tracker.providers.copilot.request_with_response_headers") as mock_get,
+    ):
+        mock_get.return_value = (200, mock_headers, "{}")
+        records = p.active_probe()
+    
+    assert len(records) > 0
+    assert records[0].provider_id == "copilot:alt"

@@ -266,7 +266,6 @@ def apply_migrations(conn: sqlite3.Connection) -> list[str]:
         )
         newly_applied.append(migration_id)
 
-    _ensure_default_providers(conn)
     conn.commit()
     return newly_applied
 
@@ -307,7 +306,7 @@ def run_maintenance(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _ensure_default_providers(conn: sqlite3.Connection) -> None:
+def ensure_default_providers(conn: sqlite3.Connection) -> None:
     """Insert default provider rows when missing."""
 
     from quota_tracker.config import load_config
@@ -320,6 +319,7 @@ def _ensure_default_providers(conn: sqlite3.Connection) -> None:
         if not provider_dict:
             provider_dict = {
                 "default": {
+                    "enabled": True,
                     "home_path": f"~/.{base_provider}",
                     "active_probe_enabled": True,
                     "high_water_marks": {},
@@ -336,13 +336,19 @@ def _ensure_default_providers(conn: sqlite3.Connection) -> None:
             else:
                 cfg_dict = instance_cfg
 
+            enabled = 1
+            if isinstance(instance_cfg, dict):
+                enabled = 1 if instance_cfg.get("enabled", True) else 0
+            elif hasattr(instance_cfg, "enabled"):
+                enabled = 1 if instance_cfg.enabled else 0
+
             conn.execute(
                 """
                 INSERT INTO providers(id, enabled, config, created_at, updated_at)
-                VALUES(?, 1, ?, ?, ?)
+                VALUES(?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO NOTHING
                 """,
-                (provider_id, validate_json_text(cfg_dict), now, now),
+                (provider_id, enabled, validate_json_text(cfg_dict), now, now),
             )
             row = conn.execute(
                 "SELECT config FROM providers WHERE id = ?", (provider_id,)
@@ -356,7 +362,7 @@ def _ensure_default_providers(conn: sqlite3.Connection) -> None:
                     "UPDATE providers SET config = ?, updated_at = ? WHERE id = ?",
                     (validate_json_text(db_config), now, provider_id),
                 )
-
+    conn.commit()
 
 @contextmanager
 def write_transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:

@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+from quota_tracker.providers import ProviderProbeError
 from quota_tracker.providers.claude_ai import (
     _ORG_ID_CACHE,
     ClaudeAiProvider,
@@ -206,13 +207,13 @@ def test_fetch_org_id_success() -> None:
 
 def test_fetch_org_id_empty_value_list() -> None:
     with patch("quota_tracker.providers.claude_ai.get_json", return_value={"value": []}):
-        with pytest.raises(RuntimeError, match="No organizations found"):
+        with pytest.raises(ProviderProbeError, match="No organizations found"):
             _fetch_org_id("sk-ant-sid02-x")
 
 
 def test_fetch_org_id_no_value_key() -> None:
     with patch("quota_tracker.providers.claude_ai.get_json", return_value={"error": "bad"}):
-        with pytest.raises(RuntimeError, match="No organizations found"):
+        with pytest.raises(ProviderProbeError, match="No organizations found"):
             _fetch_org_id("sk-ant-sid02-x")
 
 
@@ -228,7 +229,8 @@ def test_fetch_org_id_request_fails() -> None:
 def test_active_probe_no_credentials(tmp_path: Path) -> None:
     with patch("quota_tracker.providers.claude_ai.Path.home", return_value=tmp_path):
         provider = ClaudeAiProvider(home=str(tmp_path))
-        assert provider.active_probe() == []
+        with pytest.raises(ProviderProbeError, match="No Claude session key found"):
+            provider.active_probe()
 
 
 def test_active_probe_org_fetch_fails(tmp_path: Path) -> None:
@@ -410,3 +412,19 @@ def test_parse_usage_response_provider_override() -> None:
         provider_id="claude:secondary",
     )
     assert records[0].provider_id == "claude:secondary"
+
+def test_claude_provider_instance_id_override(tmp_path: Path) -> None:
+    # Setup mock creds
+    (tmp_path / "quota_tracker_creds.json").write_text(json.dumps({"session_key": "sk-1"}))
+    p = ClaudeAiProvider(str(tmp_path), provider_id="claude:work")
+    
+    mock_usage = {"seven_day": {"utilization": 5.0, "resets_at": "2026-05-16T00:00:00+00:00"}}
+    
+    with (
+        patch("quota_tracker.providers.claude_ai._fetch_org_id", return_value="org-1"),
+        patch("quota_tracker.providers.claude_ai._fetch_usage", return_value=mock_usage),
+    ):
+        records = p.active_probe()
+    
+    assert len(records) > 0
+    assert records[0].provider_id == "claude:work"

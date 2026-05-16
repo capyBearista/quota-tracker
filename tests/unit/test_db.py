@@ -6,6 +6,8 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+from unittest.mock import patch
+from quota_tracker.config import AppConfig, ProviderConfig
 
 from quota_tracker.db import (
     QuotaRecord,
@@ -46,6 +48,8 @@ def test_migrations_idempotent_and_default_providers(tmp_path: Path) -> None:
     conn = _db(tmp_path)
     try:
         apply_migrations(conn)
+        from quota_tracker.db import ensure_default_providers
+        ensure_default_providers(conn)
         before = conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]
         providers = conn.execute("SELECT id FROM providers ORDER BY id").fetchall()
         assert set(r[0] for r in providers).issuperset({"claude", "codex", "copilot", "gemini"})
@@ -69,6 +73,8 @@ def test_upsert_session_and_token_usage_idempotent(tmp_path: Path) -> None:
     conn = _db(tmp_path)
     try:
         apply_migrations(conn)
+        from quota_tracker.db import ensure_default_providers
+        ensure_default_providers(conn)
         sess = SessionRecord(
             provider_id="codex",
             external_session_id="ext-1",
@@ -111,6 +117,8 @@ def test_insert_quota_and_indexes_exist(tmp_path: Path) -> None:
     conn = _db(tmp_path)
     try:
         apply_migrations(conn)
+        from quota_tracker.db import ensure_default_providers
+        ensure_default_providers(conn)
         record = QuotaRecord(
             provider_id="gemini",
             quota_name="weekly",
@@ -141,6 +149,8 @@ def test_write_transaction_commit_and_rollback(tmp_path: Path) -> None:
     conn = _db(tmp_path)
     try:
         apply_migrations(conn)
+        from quota_tracker.db import ensure_default_providers
+        ensure_default_providers(conn)
         insert_sql = "UPDATE providers SET updated_at = ? WHERE id = ?"
         with write_transaction(conn):
             conn.execute(insert_sql, ("2026-01-01T00:00:00+00:00", "gemini"))
@@ -183,6 +193,8 @@ def test_list_provider_health_sanitized_shape(tmp_path: Path) -> None:
     conn = _db(tmp_path)
     try:
         apply_migrations(conn)
+        from quota_tracker.db import ensure_default_providers
+        ensure_default_providers(conn)
         rows = list_provider_health(conn)
         assert len(rows) >= 4
         first = rows[0]
@@ -197,6 +209,8 @@ def test_provider_row_helpers(tmp_path: Path) -> None:
     conn = _db(tmp_path)
     try:
         apply_migrations(conn)
+        from quota_tracker.db import ensure_default_providers
+        ensure_default_providers(conn)
         assert get_provider_row(conn, "gemini") is not None
         assert get_provider_row(conn, "codex") is not None
         rows = list_provider_rows(conn)
@@ -215,5 +229,35 @@ def test_provider_row_helpers(tmp_path: Path) -> None:
         conn.execute("DELETE FROM providers WHERE id = 'gemini'")
         conn.commit()
         assert get_provider_row(conn, "gemini") is None
+    finally:
+        conn.close()
+
+def test_ensure_default_providers_respects_enabled_in_config(tmp_path: Path) -> None:
+    conn = _db(tmp_path)
+    try:
+        # Setup a config where gemini is disabled
+        config = AppConfig()
+        config.gemini["default"] = ProviderConfig(enabled=False, home_path="~/.gemini")
+
+        # Mock load_config to return this config
+        with patch("quota_tracker.config.load_config", return_value=config):
+            from quota_tracker.db import ensure_default_providers
+            apply_migrations(conn)
+            ensure_default_providers(conn)
+
+        # Verify gemini is disabled in the DB
+        row = get_provider_row(conn, "gemini")
+        assert row is not None
+        assert row["enabled"] is False
+    finally:
+        conn.close()
+
+def test_apply_migrations_does_not_reconcile_providers(tmp_path: Path) -> None:
+    conn = _db(tmp_path)
+    try:
+        with patch("quota_tracker.db.schema.ensure_default_providers") as mock_ensure:
+            apply_migrations(conn)
+            # This is expected to FAIL currently (it is called at the end of apply_migrations)
+            mock_ensure.assert_not_called()
     finally:
         conn.close()

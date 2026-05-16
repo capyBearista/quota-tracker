@@ -5,6 +5,9 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
+from quota_tracker.providers import ProviderProbeError
 from quota_tracker.providers.codex import CodexProvider, _epoch_to_iso
 
 
@@ -127,7 +130,8 @@ def test_codex_active_probe_missing_token(tmp_path: Path) -> None:
     """Returns empty list when access_token is absent."""
     (tmp_path / "auth.json").write_text(json.dumps({"tokens": {}}))
     p = CodexProvider(str(tmp_path))
-    assert p.active_probe() == []
+    with pytest.raises(ProviderProbeError, match="No access token found in auth.json"):
+        p.active_probe()
 
 
 def test_codex_active_probe_wham(tmp_path: Path) -> None:
@@ -200,14 +204,16 @@ def test_codex_active_probe_network_error(tmp_path: Path) -> None:
     (tmp_path / "auth.json").write_text(json.dumps(auth))
     p = CodexProvider(str(tmp_path))
     with patch("quota_tracker.providers.codex.get_json", side_effect=RuntimeError("timeout")):
-        assert p.active_probe() == []
+        with pytest.raises(ProviderProbeError, match="Codex API error: timeout"):
+            p.active_probe()
 
 
 def test_codex_active_probe_invalid_auth_json(tmp_path: Path) -> None:
     """Malformed auth.json returns empty list."""
     (tmp_path / "auth.json").write_text("{bad json")
     p = CodexProvider(str(tmp_path))
-    assert p.active_probe() == []
+    with pytest.raises(ProviderProbeError, match="Auth file read error"):
+        p.active_probe()
 
 
 def test_codex_active_probe_no_rate_limit_key(tmp_path: Path) -> None:
@@ -216,7 +222,8 @@ def test_codex_active_probe_no_rate_limit_key(tmp_path: Path) -> None:
     (tmp_path / "auth.json").write_text(json.dumps(auth))
     p = CodexProvider(str(tmp_path))
     with patch("quota_tracker.providers.codex.get_json", return_value={"other": "data"}):
-        assert p.active_probe() == []
+        with pytest.raises(ProviderProbeError, match="Rate limit data missing from response"):
+            p.active_probe()
 
 
 def test_codex_epoch_to_iso() -> None:
@@ -300,3 +307,16 @@ def test_codex_provider_id_override(tmp_path: Path) -> None:
     r = p.passive_scan_full()
     assert r.sessions[0].provider_id == "codex:secondary"
     assert r.token_usage[0]["provider_id"] == "codex:secondary"
+
+def test_codex_active_probe_provider_id_override(tmp_path: Path) -> None:
+    (tmp_path / "auth.json").write_text(json.dumps({"tokens": {"access_token": "tok"}}))
+    p = CodexProvider(str(tmp_path), provider_id="codex:secondary")
+    mock_resp = {
+        "rate_limit": {
+            "primary_window": {"used_percent": 10, "limit_window_seconds": 60, "reset_at": 123456789}
+        }
+    }
+    with patch("quota_tracker.providers.codex.get_json", return_value=mock_resp):
+        records = p.active_probe()
+    assert len(records) > 0
+    assert records[0].provider_id == "codex:secondary"

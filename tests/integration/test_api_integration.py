@@ -15,6 +15,7 @@ from quota_tracker.db import (
     TokenUsageRecord,
     apply_migrations,
     connect_db,
+    ensure_default_providers,
     insert_quota,
     insert_token_usage,
     upsert_session,
@@ -26,6 +27,7 @@ def _seed(db_path: Path) -> None:
     conn = connect_db(str(db_path))
     try:
         apply_migrations(conn)
+        ensure_default_providers(conn)
         with write_transaction(conn):
             sid = upsert_session(
                 conn,
@@ -228,6 +230,7 @@ def test_codex_cached_tokens_are_not_double_counted(tmp_path: Path) -> None:
     conn = connect_db(str(db_path))
     try:
         apply_migrations(conn)
+        ensure_default_providers(conn)
         with write_transaction(conn):
             sid = upsert_session(
                 conn,
@@ -419,6 +422,7 @@ def test_quota_downsampling(tmp_path: Path) -> None:
     conn = connect_db(str(db_path))
     try:
         apply_migrations(conn)
+        ensure_default_providers(conn)
         # Seed 100 points over 100 minutes.
         with write_transaction(conn):
             for i in range(100):
@@ -456,3 +460,52 @@ def test_quota_downsampling(tmp_path: Path) -> None:
     data = resp.json()
     assert data["downsampled"] is True
     assert len(data["items"]) <= 15  # Sufficiently small number of buckets
+
+
+def test_api_bootstraps_default_providers_on_fresh_db(tmp_path: Path) -> None:
+    db_path = tmp_path / "api.sqlite3"
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    response = client.get("/api/providers")
+    assert response.status_code == 200
+    provider_ids = {provider["id"] for provider in response.json()["providers"]}
+    assert {"gemini", "codex", "copilot", "claude"}.issubset(provider_ids)
+    assert client.post("/api/providers/gemini/scan", json={}).status_code == 200
+
+
+def test_manual_action_all_provider_id_supported(tmp_path: Path) -> None:
+    db_path = tmp_path / "api.sqlite3"
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    assert client.post("/api/providers/all/scan", json={}).status_code == 200
+    assert client.post("/api/providers/all/probe").status_code == 200
+    assert client.post("/api/providers/all/rescan", json={"full_rescan": True}).status_code == 200
+
+
+def test_manual_action_nonexistent_provider_returns_404(tmp_path: Path) -> None:
+    db_path = tmp_path / "api.sqlite3"
+    _seed(db_path)
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    # These are expected to FAIL currently (they return 200 with summary showing 0 ops)
+    assert client.post("/api/providers/gemini:missing/scan", json={}).status_code == 404
+    assert client.post("/api/providers/gemini:missing/probe").status_code == 404
+    assert client.post("/api/providers/gemini:missing/rescan", json={"full_rescan": True}).status_code == 404
+
+
+def test_manual_action_disabled_provider_returns_409(tmp_path: Path) -> None:
+    db_path = tmp_path / "api.sqlite3"
+    _seed(db_path)
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    response = client.patch(
+        "/api/providers/codex",
+        json={"enabled": False},
+    )
+    assert response.status_code == 200
+
+    assert client.post("/api/providers/codex/probe").status_code == 409

@@ -402,14 +402,14 @@ class GeminiProvider:
         """Run active Code Assist quota probe using local OAuth credentials."""
         oauth_path = self.home / "oauth_creds.json"
         if not oauth_path.exists():
-            return []
+            raise ProviderProbeError("No Gemini OAuth credentials found")
         try:
             creds = json.loads(oauth_path.read_text(encoding="utf-8", errors="replace"))
         except Exception as e:
             LOGGER.exception("Failed to probe Gemini quota: credentials decode error")
             raise ProviderProbeError(f"Credentials decode error: {e}") from e
         if not isinstance(creds, dict):
-            return []
+            raise ProviderProbeError("OAuth credentials must be a JSON object")
         try:
             token = _get_access_token(creds)
             if not token:

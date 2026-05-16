@@ -46,22 +46,27 @@ function unionBuckets(rowsByKey: Record<string, UsageRow[]>): string[] {
   return [...set].sort()
 }
 
+function providerColor(id: ProviderId): string {
+  // Secondary accounts like "codex:personal" use the base provider color.
+  const base = id.split(":")[0] as ProviderId
+  return PROVIDER_COLORS[base] ?? "#888"
+}
+
 function buildProviderRows(byProvider: Record<ProviderId, UsageRow[]>, mode: "tokens" | "cost") {
   const buckets = unionBuckets(byProvider)
   const prop = mode === "cost" ? "estimated_cost" : "total_tokens"
-  const indexed: Record<ProviderId, Map<string, number>> = {
-    gemini: new Map(byProvider.gemini.map((r) => [r.bucket, r[prop] ?? 0])),
-    codex: new Map(byProvider.codex.map((r) => [r.bucket, r[prop] ?? 0])),
-    copilot: new Map(byProvider.copilot.map((r) => [r.bucket, r[prop] ?? 0])),
-    claude: new Map(byProvider.claude.map((r) => [r.bucket, r[prop] ?? 0])),
+  const ids = Object.keys(byProvider) as ProviderId[]
+  const indexed: Record<ProviderId, Map<string, number>> = {}
+  for (const id of ids) {
+    indexed[id] = new Map(byProvider[id].map((r) => [r.bucket, r[prop] ?? 0]))
   }
-  return buckets.map((bucket) => ({
-    bucket,
-    gemini: indexed.gemini.get(bucket) ?? 0,
-    codex: indexed.codex.get(bucket) ?? 0,
-    copilot: indexed.copilot.get(bucket) ?? 0,
-    claude: indexed.claude.get(bucket) ?? 0,
-  }))
+  return buckets.map((bucket) => {
+    const entry: Record<string, string | number> = { bucket }
+    for (const id of ids) {
+      entry[id] = indexed[id].get(bucket) ?? 0
+    }
+    return entry
+  })
 }
 
 function buildKindRows(rows: UsageRow[], mode: "tokens" | "cost") {
@@ -132,10 +137,10 @@ export function StackedTokenChart({
   }
 
   const series =
-    mode === "provider"
-      ? (["gemini", "codex", "copilot", "claude"] as ProviderId[]).map((id) => ({
+    mode === "provider" && byProvider
+      ? (Object.keys(byProvider) as ProviderId[]).map((id) => ({
           key: id,
-          color: PROVIDER_COLORS[id],
+          color: providerColor(id),
         }))
       : ["input", "output", "cached", "reasoning", "tool"].map((key) => ({
           key,

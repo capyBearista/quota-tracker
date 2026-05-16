@@ -5,6 +5,9 @@ from hashlib import sha256
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
+from quota_tracker.providers import ProviderProbeError
 from quota_tracker.providers.gemini import GeminiProvider
 
 
@@ -144,10 +147,12 @@ def test_gemini_json_parse_failures(tmp_path: Path) -> None:
 
 def test_gemini_active_probe_paths(tmp_path: Path) -> None:
     p = GeminiProvider(str(tmp_path))
-    assert p.active_probe() == []  # no oauth_creds.json
+    with pytest.raises(ProviderProbeError, match="No Gemini OAuth credentials found"):
+        p.active_probe()  # no oauth_creds.json
 
     (tmp_path / "oauth_creds.json").write_text("{}")
-    assert p.active_probe() == []  # creds exist but no token or refresh_token
+    with pytest.raises(ProviderProbeError, match="Failed to obtain valid access token"):
+        p.active_probe()
 
 
 def test_gemini_no_tmp_dir(tmp_path: Path) -> None:
@@ -293,11 +298,13 @@ def test_gemini_active_probe_invalid_creds(tmp_path: Path) -> None:
     p = GeminiProvider(str(tmp_path))
     # Write invalid JSON to oauth_creds.json
     (tmp_path / "oauth_creds.json").write_text("{bad json")
-    assert p.active_probe() == []
+    with pytest.raises(ProviderProbeError, match="Credentials decode error"):
+        p.active_probe()
 
     # Write non-dict JSON
     (tmp_path / "oauth_creds.json").write_text(json.dumps([1, 2, 3]))
-    assert p.active_probe() == []
+    with pytest.raises(ProviderProbeError, match="OAuth credentials must be a JSON object"):
+        p.active_probe()
 
 
 def test_gemini_active_probe_no_project(tmp_path: Path) -> None:
@@ -309,7 +316,8 @@ def test_gemini_active_probe_no_project(tmp_path: Path) -> None:
         patch("quota_tracker.providers.gemini._get_access_token", return_value="tok"),
         patch("quota_tracker.providers.gemini.post_json", return_value={}),
     ):
-        assert p.active_probe() == []
+        with pytest.raises(ProviderProbeError, match="Failed to resolve cloudaicompanionProject"):
+            p.active_probe()
 
 
 def test_gemini_active_probe_uses_explicit_project(tmp_path: Path) -> None:
@@ -352,7 +360,8 @@ def test_gemini_active_probe_exception(tmp_path: Path) -> None:
         patch("quota_tracker.providers.gemini._get_access_token", return_value="tok"),
         patch("quota_tracker.providers.gemini.post_json", side_effect=RuntimeError("net")),
     ):
-        assert p.active_probe() == []
+        with pytest.raises(ProviderProbeError, match="Gemini API error: net"):
+            p.active_probe()
 
 
 def test_gemini_active_probe_granular(tmp_path: Path) -> None:

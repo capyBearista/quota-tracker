@@ -26,6 +26,7 @@ from quota_tracker.db import (
     apply_migrations,
     connect_db,
     delete_provider_row,
+    ensure_default_providers,
     insert_provider_row,
     list_provider_health,
     list_provider_rows,
@@ -116,13 +117,36 @@ def _normalize_iso_param(value: str | None) -> str | None:
     dt = dt.astimezone(UTC).replace(microsecond=0)
     return dt.isoformat()
 
+def _ensure_provider_exists(db_path: Path, provider_id: str) -> None:
+    """Raise 404 if provider_id does not exist in the providers table."""
+
+    if provider_id == "all":
+        return
+
+    conn = connect_db(str(db_path))
+    try:
+        apply_migrations(conn)
+        ensure_default_providers(conn)
+        row = conn.execute("SELECT 1 FROM providers WHERE id = ?", (provider_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Provider {provider_id} not found")
+    finally:
+        conn.close()
+
+
+def _prepare_provider_db(conn: Any) -> None:
+    """Apply migrations and ensure default provider rows exist."""
+
+    apply_migrations(conn)
+    ensure_default_providers(conn)
+
 
 def _health_payload(db_path: Path, scheduler_enabled: bool) -> dict[str, object]:
     """Build the /api/health response."""
 
     conn = connect_db(str(db_path))
     try:
-        apply_migrations(conn)
+        _prepare_provider_db(conn)
         providers = list_provider_health(conn)
     finally:
         conn.close()
@@ -156,7 +180,7 @@ def register_routes(
 
         conn = connect_db(str(db_path))
         try:
-            apply_migrations(conn)
+            _prepare_provider_db(conn)
             return {"providers": list_provider_health(conn)}
         finally:
             conn.close()
@@ -202,7 +226,7 @@ def register_routes(
 
         conn = connect_db(str(db_path))
         try:
-            apply_migrations(conn)
+            _prepare_provider_db(conn)
             insert_provider_row(
                 conn, provider_id, enabled=True, config=new_cfg.model_dump()
             )
@@ -234,7 +258,7 @@ def register_routes(
         instance_name: str | None = None
         original_instance_cfg = None
         try:
-            apply_migrations(conn)
+            _prepare_provider_db(conn)
             rows = {row["id"]: row for row in list_provider_rows(conn)}
             row = rows.get(provider_id)
             if row is None:
@@ -312,7 +336,7 @@ def register_routes(
 
         conn = connect_db(str(db_path))
         try:
-            apply_migrations(conn)
+            _prepare_provider_db(conn)
             rows = {row["id"]: row for row in list_provider_rows(conn)}
             if provider_id not in rows:
                 raise HTTPException(status_code=404, detail="provider not found")
@@ -343,6 +367,18 @@ def register_routes(
     def manual_scan(provider_id: str, payload: ProviderActionRequest) -> dict[str, Any]:
         """Run manual passive scan for one provider."""
 
+        _ensure_provider_exists(db_path, provider_id)
+        conn = connect_db(str(db_path))
+        try:
+            _prepare_provider_db(conn)
+            if provider_id != "all":
+                row = conn.execute(
+                    "SELECT enabled FROM providers WHERE id = ?", (provider_id,)
+                ).fetchone()
+                if row is not None and not row["enabled"]:
+                    raise HTTPException(status_code=409, detail="provider disabled")
+        finally:
+            conn.close()
         runner = service or DaemonService(str(db_path))
         summary = runner.run_scan(provider=provider_id, full=payload.full_rescan)
         return {"ok": True, "summary": summary.__dict__}
@@ -351,6 +387,18 @@ def register_routes(
     def manual_probe(provider_id: str) -> dict[str, Any]:
         """Run manual active probe for one provider."""
 
+        _ensure_provider_exists(db_path, provider_id)
+        conn = connect_db(str(db_path))
+        try:
+            _prepare_provider_db(conn)
+            if provider_id != "all":
+                row = conn.execute(
+                    "SELECT enabled FROM providers WHERE id = ?", (provider_id,)
+                ).fetchone()
+                if row is not None and not row["enabled"]:
+                    raise HTTPException(status_code=409, detail="provider disabled")
+        finally:
+            conn.close()
         runner = service or DaemonService(str(db_path))
         summary = runner.run_probe(provider=provider_id)
         return {"ok": True, "summary": summary.__dict__}
@@ -359,13 +407,26 @@ def register_routes(
     def manual_full_rescan(provider_id: str, payload: ProviderActionRequest) -> dict[str, Any]:
         """Reset high-water marks then run full rescan when explicitly requested."""
 
+        _ensure_provider_exists(db_path, provider_id)
         if not payload.full_rescan:
             return {
                 "ok": False,
                 "error": "full_rescan confirmation required",
             }
+        conn = connect_db(str(db_path))
+        try:
+            _prepare_provider_db(conn)
+            if provider_id != "all":
+                row = conn.execute(
+                    "SELECT enabled FROM providers WHERE id = ?", (provider_id,)
+                ).fetchone()
+                if row is not None and not row["enabled"]:
+                    raise HTTPException(status_code=409, detail="provider disabled")
+        finally:
+            conn.close()
         runner = service or DaemonService(str(db_path))
-        runner.reset_high_water_marks(provider_id)
+        if provider_id != "all":
+            runner.reset_high_water_marks(provider_id)
         summary = runner.run_scan(provider=provider_id, full=True)
         return {"ok": True, "summary": summary.__dict__}
 
