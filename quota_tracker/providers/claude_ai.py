@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -17,6 +18,8 @@ from quota_tracker.providers.base import (
     normalize_token_usage,
 )
 from quota_tracker.providers.http import get_json
+
+LOGGER = logging.getLogger(__name__)
 
 _CLAUDE_USAGE_URL = "https://claude.ai/api/organizations/{org_id}/usage"
 _CLAUDE_ORGS_URL = "https://claude.ai/api/organizations"
@@ -71,6 +74,11 @@ def _safe_usage_metadata(usage: dict[str, Any]) -> dict[str, Any]:
         "cache_creation_input_tokens": _as_int(usage.get("cache_creation_input_tokens")),
         "cache_read_input_tokens": _as_int(usage.get("cache_read_input_tokens")),
     }
+    # Optional reasoning/thoughts if they appear in future/private APIs
+    for key in ("reasoning_tokens", "thoughts_tokens"):
+        if key in usage:
+            metadata[key] = _as_int(usage.get(key))
+
     service_tier = usage.get("service_tier")
     if isinstance(service_tier, str):
         metadata["service_tier"] = service_tier
@@ -132,27 +140,26 @@ def _load_session_key(home: Path) -> str | None:
     return _load_session_key_from_file(home)
 
 
-def _fetch_org_id(session_key: str) -> str | None:
+def _fetch_org_id(session_key: str) -> str:
     """Fetch the organization UUID from /api/organizations using the session key.
 
     get_json wraps list responses as {"value": [...]}, so we unwrap when needed.
     """
-    try:
-        data = get_json(
-            _CLAUDE_ORGS_URL,
-            headers={
-                **_CLAUDE_REQUEST_HEADERS,
-                "Cookie": f"sessionKey={session_key}",
-            },
-        )
-    except Exception:
-        return None
+    data = get_json(
+        _CLAUDE_ORGS_URL,
+        headers={
+            **_CLAUDE_REQUEST_HEADERS,
+            "Cookie": f"sessionKey={session_key}",
+        },
+    )
     orgs = data.get("value") if isinstance(data, dict) else data
     if not isinstance(orgs, list) or not orgs:
-        return None
+        raise RuntimeError("No organizations found in Claude API response")
     org = orgs[0]
     uuid = org.get("uuid") if isinstance(org, dict) else None
-    return uuid if isinstance(uuid, str) and uuid.strip() else None
+    if not isinstance(uuid, str) or not uuid.strip():
+        raise RuntimeError("First organization in Claude API response has no uuid")
+    return uuid.strip()
 
 
 def _fetch_usage(session_key: str, org_id: str) -> dict[str, Any] | None:
@@ -328,6 +335,11 @@ class ClaudeAiProvider:
                 cache_creation_tokens = _as_int(usage.get("cache_creation_input_tokens"))
                 cache_read_tokens = _as_int(usage.get("cache_read_input_tokens"))
                 cached_tokens = cache_creation_tokens + cache_read_tokens
+                reasoning_tokens = _as_int(usage.get("reasoning_tokens"))
+                thoughts_tokens = _as_int(usage.get("thoughts_tokens"))
+
+                # Claude API 'input_tokens' is already billable tokens (net of cache).
+                # Total tokens should include the cached part that was deducted.
                 total_tokens = _as_int(usage.get("total_tokens")) or (
                     input_tokens + output_tokens + cached_tokens
                 )
@@ -345,6 +357,8 @@ class ClaudeAiProvider:
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     cached_tokens=cached_tokens,
+                    reasoning_tokens=reasoning_tokens,
+                    thoughts_tokens=thoughts_tokens,
                     total_tokens=total_tokens,
                     source="local_log",
                 )
@@ -380,8 +394,8 @@ class ClaudeAiProvider:
         """Fetch usage quotas from the claude.ai organization usage API."""
         session_key = _load_session_key(self.home)
         if not session_key:
+            LOGGER.warning("No Claude session key found in %s", self.home)
             return []
-
         org_id = _load_org_id_from_file(self.home) or _ORG_ID_CACHE.get(session_key)
         org_loaded_without_fetch = org_id is not None
         if not org_id:

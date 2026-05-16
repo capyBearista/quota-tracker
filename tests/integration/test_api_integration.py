@@ -196,13 +196,14 @@ def test_api_endpoints_and_static_fallback(tmp_path: Path, monkeypatch: pytest.M
     assert client.patch("/api/providers/unknown", json={"enabled": True}).status_code == 404
     assert client.get("/api/nope").status_code == 404
 
-    frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    frontend_dist = tmp_path / "frontend" / "dist"
     frontend_dist.mkdir(parents=True, exist_ok=True)
     (frontend_dist / "index.html").write_text("<html>ok</html>")
     assets_dir = frontend_dist / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
     (assets_dir / "x.js").write_text("console.log('x');")
 
+    monkeypatch.setenv("QUOTA_TRACKER_FRONTEND", str(frontend_dist))
     app2 = create_app(db_path=db_path, config_path=config_path)
     client2 = TestClient(app2)
     assert client2.get("/").status_code == 200
@@ -216,6 +217,7 @@ def test_api_endpoints_and_static_fallback(tmp_path: Path, monkeypatch: pytest.M
     bundle_dist.mkdir(parents=True)
     (bundle_dist / "index.html").write_text("<html>bundled</html>")
     (bundle_dist / "assets").mkdir()
+    monkeypatch.delenv("QUOTA_TRACKER_FRONTEND")
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "bundle"), raising=False)
     bundled_client = TestClient(create_app(db_path=db_path, config_path=config_path))
     assert "bundled" in bundled_client.get("/").text
@@ -336,3 +338,47 @@ def test_delete_provider(tmp_path: Path) -> None:
 
     health = client.get("/api/providers").json()
     assert not any(p["id"] == "gemini:testing2" for p in health["providers"])
+
+
+def test_quota_downsampling(tmp_path: Path) -> None:
+    db_path = tmp_path / "downsample.sqlite3"
+    conn = connect_db(str(db_path))
+    try:
+        apply_migrations(conn)
+        # Seed 100 points over 100 minutes.
+        with write_transaction(conn):
+            for i in range(100):
+                ts = f"2026-01-01T00:{i:02d}:00+00:00"
+                insert_quota(
+                    conn,
+                    QuotaRecord(
+                        provider_id="codex",
+                        quota_name="primary",
+                        source="test",
+                        timestamp=ts,
+                        used_percent=float(i),
+                        remaining_percent=float(100 - i),
+                        window_minutes=60,
+                        resets_at=None,
+                        raw_data={},
+                    ),
+                )
+    finally:
+        conn.close()
+
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    # Request downsampling to 10 points.
+    resp = client.get(
+        "/api/quotas",
+        params={
+            "provider_id": "codex",
+            "quota_name": "primary",
+            "downsample": 10,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["downsampled"] is True
+    assert len(data["items"]) <= 15  # Sufficiently small number of buckets

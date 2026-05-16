@@ -3,6 +3,7 @@ const path = require("path");
 const fs = require("fs");
 
 const outputDir = process.argv[2] || path.join(__dirname, "../assets/screenshots");
+const port = process.env.QUOTA_TRACKER_PORT || "8787";
 
 if (!fs.existsSync(outputDir)) {
   fs.mkdirSync(outputDir, { recursive: true });
@@ -10,7 +11,7 @@ if (!fs.existsSync(outputDir)) {
 
 const pages = [
   {
-    url: "http://localhost:9000/overview",
+    url: `http://localhost:${port}/overview`,
     path: path.join(outputDir, "overview.png")
   }
 ];
