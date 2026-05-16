@@ -1,4 +1,4 @@
-import React, { useState } from "react"
+import React, { useState, useCallback } from "react"
 import { Link, useParams } from "react-router-dom"
 import { ModelBarChart } from "../components/charts/ModelBarChart"
 import { QuotaHistoryChart } from "../components/charts/QuotaHistoryChart"
@@ -8,9 +8,10 @@ import { QuotaPanel, rollupGeminiQuotas, filterCopilotQuotas, filterClaudeQuotas
 import { ThemeToggle } from "../components/ui/ThemeToggle"
 import type { Range } from "../hooks/useDashboard"
 import { useDashboard } from "../hooks/useDashboard"
+import { useConfig } from "../hooks/useConfig"
 import { useProviders } from "../contexts/ProvidersContext"
 import type { ProviderId } from "../types"
-import { basename, formatDate, formatLargeNumber, formatCost, formatRelative, latestQuotas } from "../utils"
+import { basename, formatDate, formatLargeNumber, formatCost, formatRelative, latestQuotas, formatProviderName } from "../utils"
 
 const PROVIDER_LOGOS: Record<string, string> = {
   gemini: "/logos/gemini.png",
@@ -35,16 +36,6 @@ const PROVIDER_COLORS_HEX: Record<string, string> = {
 
 const SESSION_PAGE_SIZE = 5
 
-function formatProviderName(id: string): string {
-  const parts = id.split(":")
-  const base = parts[0]
-  const baseName = base.charAt(0).toUpperCase() + base.slice(1)
-  if (parts.length > 1 && parts[1] !== "default") {
-    return `${baseName} (${parts[1]})`
-  }
-  return baseName
-}
-
 function statusFor(pct: number): "crit" | "warn" | "ok" {
   if (pct >= 95) return "crit"
   if (pct >= 70) return "warn"
@@ -57,8 +48,12 @@ export function ProviderDetail(): React.JSX.Element {
   const [sessionPage, setSessionPage] = useState(0)
   const [selectedModel, setSelectedModel] = useState<string>("all")
   const [chartMode, setChartMode] = useState<"tokens" | "cost">("tokens")
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState("")
 
   const providerId: string | null = id || null
+
+  const { updateProvider } = useConfig()
 
   const handleRange = (next: Range) => {
     setRange(next)
@@ -85,6 +80,23 @@ export function ProviderDetail(): React.JSX.Element {
     refresh,
     } = useDashboard(providerId ?? undefined, range, selectedModel)
 
+  const handleTitleSave = useCallback(async () => {
+    setEditingTitle(false)
+    if (!providerId) return
+    const trimmed = titleDraft.trim()
+    
+    let newDisplayName = trimmed
+    const defaultName = formatProviderName(providerId)
+    if (trimmed === defaultName || trimmed === "") {
+      newDisplayName = ""
+    }
+
+    const currentDisplayName = providers.find((p) => p.id === providerId)?.config?.display_name ?? ""
+    if (newDisplayName === currentDisplayName) return
+    
+    await updateProvider(providerId, { display_name: newDisplayName })
+    refresh()
+  }, [titleDraft, providerId, providers, updateProvider, refresh])
 
   if (!providerId) {
     return (
@@ -177,7 +189,7 @@ export function ProviderDetail(): React.JSX.Element {
           </Link>
           <span className="crumb-sep">/</span>
           <span className="crumb-title" style={{ color: providerColor }}>
-            {formatProviderName(providerId)}
+            {formatProviderName(providerId, provider?.config?.display_name)}
           </span>
           <span
             className={`crumb-status${worstStatus === "crit" ? " crit" : worstStatus === "warn" ? " warn" : ""}`}
@@ -228,13 +240,54 @@ export function ProviderDetail(): React.JSX.Element {
           >
             <img
               src={PROVIDER_LOGOS[baseId] || "/logos/default.png"}
-              alt={formatProviderName(providerId)}
+              alt={formatProviderName(providerId, provider?.config?.display_name)}
               style={{ width: 52, height: 52, objectFit: "contain" }}
             />
           </div>
           <div>
             <div className="provider-page-title">
-              <span style={{ color: providerColor }}>{formatProviderName(providerId)}</span>
+              {editingTitle ? (
+                <input
+                  autoFocus
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onBlur={handleTitleSave}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      e.currentTarget.blur()
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault()
+                      setTitleDraft(provider?.config?.display_name ?? formatProviderName(providerId))
+                      setEditingTitle(false)
+                    }
+                  }}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    outline: "none",
+                    color: providerColor,
+                    fontSize: "inherit",
+                    fontWeight: "inherit",
+                    fontFamily: "inherit",
+                    padding: 0,
+                    margin: 0,
+                    width: "auto",
+                  }}
+                />
+              ) : (
+                <span
+                  style={{ color: providerColor, cursor: "pointer" }}
+                  onClick={() => {
+                    setTitleDraft(provider?.config?.display_name ?? formatProviderName(providerId))
+                    setEditingTitle(true)
+                  }}
+                  title="Click to rename"
+                >
+                  {formatProviderName(providerId, provider?.config?.display_name)}
+                </span>
+              )}
               <span
                 className={`crumb-status${worstStatus === "crit" ? " crit" : worstStatus === "warn" ? " warn" : ""}`}
               >
@@ -520,7 +573,7 @@ export function ProviderDetail(): React.JSX.Element {
           </div>
           {sessions.length === 0 ? (
             <div style={{ padding: "24px 20px", textAlign: "center", color: "var(--fg-3)", fontSize: 13 }}>
-              No sessions for {formatProviderName(providerId)} in this range
+              No sessions for {formatProviderName(providerId, provider?.config?.display_name)} in this range
             </div>
           ) : (
             <>

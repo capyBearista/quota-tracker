@@ -127,6 +127,7 @@ def list_provider_health(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         cfg = json.loads(row["config"])
         safe_cfg = {
             "home_path": cfg.get("home_path"),
+            "display_name": cfg.get("display_name"),
             "active_probe_enabled": True,
             "passive_sync_enabled": cfg.get("passive_sync_enabled"),
             "high_water_marks": cfg.get("high_water_marks", {}),
@@ -194,3 +195,30 @@ def update_provider_row(
         """,
         (1 if enabled else 0, validate_json_text(config), utc_now_iso(), provider_id),
     )
+
+
+def insert_provider_row(
+    conn: sqlite3.Connection, provider_id: str, *, enabled: bool, config: dict[str, Any]
+) -> None:
+    """Insert one provider row with sanitized JSON config (idempotent)."""
+
+    ensure_provider(provider_id)
+    now = utc_now_iso()
+    conn.execute(
+        """
+        INSERT INTO providers(id, enabled, config, created_at, updated_at)
+        VALUES(?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO NOTHING
+        """,
+        (provider_id, 1 if enabled else 0, validate_json_text(config), now, now),
+    )
+
+
+def delete_provider_row(conn: sqlite3.Connection, provider_id: str) -> None:
+    """Delete a provider row and all its related history (cascading)."""
+
+    ensure_provider(provider_id)
+    conn.execute("DELETE FROM token_usage_history WHERE provider_id = ?", (provider_id,))
+    conn.execute("DELETE FROM sessions WHERE provider_id = ?", (provider_id,))
+    conn.execute("DELETE FROM quota_history WHERE provider_id = ?", (provider_id,))
+    conn.execute("DELETE FROM providers WHERE id = ?", (provider_id,))

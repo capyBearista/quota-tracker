@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react"
 import { ThemeToggle } from "../components/ui/ThemeToggle"
+import { formatProviderName } from "../utils"
 import { useConfig } from "../hooks/useConfig"
 import type { ModelPricing, ProviderId, ProviderSummary } from "../types"
 
@@ -23,7 +24,7 @@ function providerToForm(p: ProviderSummary): ProviderFormState {
 }
 
 export function Settings(): React.JSX.Element {
-  const { config, providers, busy, updateConfig, updateProvider, scanProvider } = useConfig()
+  const { config, providers, busy, updateConfig, createProvider, updateProvider, deleteProvider, scanProvider } = useConfig()
 
   const [syncMinutes, setSyncMinutes] = useState(5)
   const [daemonSaving, setDaemonSaving] = useState(false)
@@ -37,6 +38,12 @@ export function Settings(): React.JSX.Element {
   const [providerForms, setProviderForms] = useState<Record<string, ProviderFormState>>({})
 
   const [actionBusy, setActionBusy] = useState<string | null>(null)
+
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false)
+  const [newBaseProvider, setNewBaseProvider] = useState("gemini")
+  const [newDisplayName, setNewDisplayName] = useState("")
+  const [newHomePath, setNewHomePath] = useState("")
+  const [homePathEdited, setHomePathEdited] = useState(false)
 
   useEffect(() => {
     if (config) {
@@ -109,6 +116,16 @@ export function Settings(): React.JSX.Element {
     }
   }
 
+  async function handleDeleteProvider(id: string): Promise<void> {
+    if (!window.confirm(`Are you sure you want to delete the secondary account "${formatProviderName(id)}"? This will also delete all its history.`)) return
+    setActionBusy(`delete-${id}`)
+    try {
+      await deleteProvider(id)
+    } finally {
+      setActionBusy(null)
+    }
+  }
+
   function setProviderField<K extends keyof ProviderFormState>(
     id: string,
     field: K,
@@ -118,6 +135,27 @@ export function Settings(): React.JSX.Element {
       ...prev,
       [id]: { ...prev[id], [field]: value },
     }))
+  }
+
+  async function handleAddProvider(): Promise<void> {
+    if (!newDisplayName.trim() || !newHomePath.trim()) return
+    const account_name = newDisplayName
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+    if (!account_name) return
+
+    await createProvider({
+      base_provider: newBaseProvider,
+      account_name,
+      display_name: newDisplayName.trim(),
+      home_path: newHomePath.trim(),
+    })
+    setIsAddModalOpen(false)
+    setNewDisplayName("")
+    setNewHomePath("")
+    setHomePathEdited(false)
   }
 
   if (!config && !busy) {
@@ -319,6 +357,20 @@ export function Settings(): React.JSX.Element {
         </div>
 
         {/* Provider cards */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <div className="section-title">Providers</div>
+          <button
+            className="icon-btn primary"
+            onClick={() => setIsAddModalOpen(true)}
+            style={{ padding: "4px 10px", fontSize: 12 }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 4 }}>
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Add secondary account
+          </button>
+        </div>
+
         <div className="grid-2eq">
           {providers.map((p) => {
             const id = p.id
@@ -328,9 +380,7 @@ export function Settings(): React.JSX.Element {
             const isBusy = actionBusy !== null || busy
             const color = PROVIDER_COLOR_VARS[baseId] || "var(--fg-1)"
             
-            const baseName = baseId.charAt(0).toUpperCase() + baseId.slice(1)
-            const parts = id.split(":")
-            const label = parts.length > 1 && parts[1] !== "default" ? `${baseName} (${parts[1]})` : baseName
+            const label = formatProviderName(id, p.config?.display_name)
 
             return (
               <div key={id} className="card">
@@ -381,6 +431,16 @@ export function Settings(): React.JSX.Element {
                       >
                         {actionBusy === `sync-${id}` ? "Syncing…" : "Sync"}
                       </button>
+                      {id.includes(":") && (
+                        <button
+                          className="icon-btn"
+                          disabled={isBusy && actionBusy !== `delete-${id}`}
+                          onClick={() => handleDeleteProvider(id)}
+                          style={{ padding: "4px 8px", fontSize: 12, color: "var(--crit)", borderColor: "color-mix(in oklab, var(--crit) 30%, transparent)" }}
+                        >
+                          {actionBusy === `delete-${id}` ? "Deleting…" : "Delete"}
+                        </button>
+                      )}
                       <button
                         className="icon-btn primary"
                         disabled={isBusy && actionBusy !== `save-${id}`}
@@ -397,6 +457,97 @@ export function Settings(): React.JSX.Element {
           })}
         </div>
       </div>
+
+      {isAddModalOpen && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 100, backdropFilter: "blur(2px)"
+        }}>
+          <div className="card" style={{ width: 400, padding: 0, overflow: "hidden" }}>
+            <div className="card-head" style={{ padding: "12px 16px" }}>
+              <span className="card-title">Add secondary account</span>
+              <button className="icon-btn" onClick={() => setIsAddModalOpen(false)}>✕</button>
+            </div>
+            <div className="card-body" style={{ padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={{ fontSize: 12, color: "var(--fg-3)" }}>Base provider</span>
+                <select
+                  className="select"
+                  value={newBaseProvider}
+                  onChange={(e) => {
+                    setNewBaseProvider(e.target.value)
+                    if (!homePathEdited) {
+                      const slug = newDisplayName.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-") || "secondary"
+                      setNewHomePath(`~/.${e.target.value}-${slug}`)
+                    }
+                  }}
+                  style={{ width: "100%", height: 32 }}
+                >
+                  <option value="gemini">Gemini</option>
+                  <option value="codex">Codex</option>
+                  <option value="copilot">Copilot</option>
+                  <option value="claude">Claude</option>
+                </select>
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={{ fontSize: 12, color: "var(--fg-3)" }}>Display name (e.g. Personal Laptop)</span>
+                <input
+                  type="text"
+                  placeholder="My Secondary Account"
+                  value={newDisplayName}
+                  onChange={(e) => {
+                    setNewDisplayName(e.target.value)
+                    if (!homePathEdited) {
+                      const slug = e.target.value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-")
+                      if (slug) setNewHomePath(`~/.${newBaseProvider}-${slug}`)
+                      else setNewHomePath(`~/.${newBaseProvider}-secondary`)
+                    }
+                  }}
+                  style={inputStyle}
+                />
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={{ fontSize: 12, color: "var(--fg-3)" }}>Directory path</span>
+                <input
+                  type="text"
+                  value={newHomePath}
+                  onChange={(e) => {
+                    setNewHomePath(e.target.value)
+                    setHomePathEdited(true)
+                  }}
+                  style={inputStyle}
+                />
+              </label>
+
+              <div style={{
+                background: "color-mix(in oklab, var(--warn) 10%, transparent)",
+                border: "1px solid color-mix(in oklab, var(--warn) 25%, transparent)",
+                borderRadius: "var(--radius-1)",
+                padding: "10px 12px",
+                fontSize: 12,
+                color: "var(--warn-text, var(--fg-2))",
+                lineHeight: 1.4
+              }}>
+                <strong>⚠️ Credentials required:</strong> You must manually copy your auth credentials (e.g. <code>oauth_creds.json</code>) into this folder for quota tracking to work.
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
+                <button className="icon-btn" onClick={() => setIsAddModalOpen(false)}>Cancel</button>
+                <button
+                  className="icon-btn primary"
+                  disabled={!newDisplayName || !newHomePath || busy}
+                  onClick={handleAddProvider}
+                >
+                  {busy ? "Adding…" : "Add account"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

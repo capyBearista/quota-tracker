@@ -10,7 +10,7 @@ import { useDashboard } from "../hooks/useDashboard"
 import { useProjectUsage } from "../hooks/useProjectUsage"
 import { useProviders } from "../contexts/ProvidersContext"
 import type { ProviderId, QuotaRow } from "../types"
-import { basename, formatLargeNumber, formatCost, formatRelative, formatDate, latestQuotas } from "../utils"
+import { basename, formatLargeNumber, formatCost, formatRelative, formatDate, latestQuotas, formatProviderName } from "../utils"
 
 const PROVIDER_LOGOS: Record<string, string> = {
   gemini: "/logos/gemini.png",
@@ -37,16 +37,6 @@ const PROVIDER_COLORS_HEX: Record<string, string> = {
 const PROJECT_PAGE_SIZE = 5
 const SESSION_PAGE_SIZE = 5
 
-function formatProviderName(id: string): string {
-  const parts = id.split(":")
-  const base = parts[0]
-  const baseName = base.charAt(0).toUpperCase() + base.slice(1)
-  if (parts.length > 1 && parts[1] !== "default") {
-    return `${baseName} (${parts[1]})`
-  }
-  return baseName
-}
-
 function statusFor(pct: number): "crit" | "warn" | "ok" {
   if (pct >= 95) return "crit"
   if (pct >= 70) return "warn"
@@ -61,7 +51,7 @@ interface AlertItem {
   resetsAt: string | null
 }
 
-function AlertRibbon({ latest }: { latest: QuotaRow[] }): React.JSX.Element | null {
+function AlertRibbon({ latest, providers }: { latest: QuotaRow[], providers: any[] }): React.JSX.Element | null {
   const crit: AlertItem[] = []
   const warn: AlertItem[] = []
 
@@ -116,7 +106,7 @@ function AlertRibbon({ latest }: { latest: QuotaRow[] }): React.JSX.Element | nu
                 className="pill"
                 style={{ color: PROVIDER_COLOR_VARS[it.providerId.split(":")[0]] || "var(--fg-1)" }}
               >
-                {formatProviderName(it.providerId)}
+                {formatProviderName(it.providerId, providers.find((p: any) => p.id === it.providerId)?.config?.display_name)}
               </span>
               <span> {displayLabel(it.providerId, it.quotaName)} </span>
               <strong>{it.pct.toFixed(1)}%</strong>
@@ -270,7 +260,7 @@ export function Overview(): React.JSX.Element {
         </div>
 
         {/* Alert ribbon */}
-        <AlertRibbon latest={latestCtxAlert} />
+        <AlertRibbon latest={latestCtxAlert} providers={providers} />
 
         {/* KPI grid */}
         <div className="kpi-grid">
@@ -355,7 +345,7 @@ export function Overview(): React.JSX.Element {
                     style={{ ["--c" as string]: PROVIDER_COLOR_VARS[baseId] || "var(--fg-1)", ["--w" as string]: pct + "%" }}
                   >
                     <span className="dot"></span>
-                    <span className="name">{formatProviderName(id)}</span>
+                    <span className="name">{formatProviderName(id, providers.find(p => p.id === id)?.config?.display_name)}</span>
                     <span className="bar"><i></i></span>
                     <span className="v" style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
                       <span>{formatLargeNumber(value)}</span>
@@ -399,11 +389,11 @@ export function Overview(): React.JSX.Element {
                           src={PROVIDER_LOGOS[baseId] || "/logos/default.png"}
                           width={28}
                           height={28}
-                          alt={formatProviderName(id)}
+                          alt={formatProviderName(id, providers.find(p => p.id === id)?.config?.display_name)}
                         />
                       </div>
                       <div>
-                        <div className="quota-card-name">{formatProviderName(id)}</div>
+                        <div className="quota-card-name">{formatProviderName(id, providers.find(p => p.id === id)?.config?.display_name)}</div>
                         <div className="quota-card-sub">{visible.length} quota{visible.length > 1 ? "s" : ""}</div>
                       </div>
                       <button
@@ -473,7 +463,7 @@ export function Overview(): React.JSX.Element {
                   <option value="all">All providers</option>
                   {providerIds.map((id) => (
                     <option key={id} value={id}>
-                      {formatProviderName(id)}
+                      {formatProviderName(id, providers.find(p => p.id === id)?.config?.display_name)}
                     </option>
                   ))}
                 </select>
@@ -523,7 +513,7 @@ export function Overview(): React.JSX.Element {
                   <option value="all">All providers</option>
                   {providerIds.map((id) => (
                     <option key={id} value={id}>
-                      {formatProviderName(id)}
+                      {formatProviderName(id, providers.find(p => p.id === id)?.config?.display_name)}
                     </option>
                   ))}
                 </select>
@@ -643,7 +633,7 @@ export function Overview(): React.JSX.Element {
                               }}
                             ></span>
                             <span style={{ color: "var(--fg-1)", fontWeight: 500 }}>
-                              {formatProviderName(p.id)}
+                              {formatProviderName(p.id, p.config?.display_name)}
                             </span>
                           </div>
                         </td>
@@ -697,7 +687,7 @@ export function Overview(): React.JSX.Element {
                   <option value="all">All providers</option>
                   {providerIds.map((id) => (
                     <option key={id} value={id}>
-                      {formatProviderName(id)}
+                      {formatProviderName(id, providers.find(p => p.id === id)?.config?.display_name)}
                     </option>
                   ))}
               </select>
@@ -723,7 +713,7 @@ export function Overview(): React.JSX.Element {
                     <tr key={s.id}>
                       <td>
                         <span className={`tag ${s.provider_id.split(":")[0]}`}>
-                          {formatProviderName(s.provider_id)}
+                          {formatProviderName(s.provider_id, providers.find(p => p.id === s.provider_id)?.config?.display_name)}
                         </span>
                       </td>
                       <td style={{ color: "var(--fg-1)" }}>

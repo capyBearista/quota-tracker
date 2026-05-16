@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { apiGet, apiSend } from "../api"
-import type { ProjectUsageRow, ProviderId, ProviderSummary, QuotaRow, SessionRow, UsageRow } from "../types"
+import type { ProjectUsageRow, ProviderId, ProviderSummary, QuotaRow, SessionRow, UsageRow, ProjectUsageResponse } from "../types"
 
 export type Range = "24h" | "7d" | "30d" | "all"
 export type Granularity = "hour" | "day" // Kept for backwards compatibility if needed, but not used in args

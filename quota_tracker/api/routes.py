@@ -17,6 +17,7 @@ from quota_tracker import __version__
 from quota_tracker.api.schemas import (
     ConfigPatchRequest,
     ProviderActionRequest,
+    ProviderCreateRequest,
     ProviderPatchRequest,
 )
 from quota_tracker.config import AppConfig, ModelPricing, save_config
@@ -24,6 +25,8 @@ from quota_tracker.daemon import DaemonService
 from quota_tracker.db import (
     apply_migrations,
     connect_db,
+    delete_provider_row,
+    insert_provider_row,
     list_provider_health,
     list_provider_rows,
     update_provider_row,
@@ -158,6 +161,67 @@ def register_routes(
         finally:
             conn.close()
 
+    @app.post("/api/providers")
+    def create_provider(payload: ProviderCreateRequest) -> dict[str, Any]:
+        """Create a new secondary provider account."""
+
+        if payload.base_provider not in {"gemini", "codex", "copilot", "claude"}:
+            raise HTTPException(status_code=400, detail="invalid base_provider")
+
+        account_name = payload.account_name.strip().lower()
+        if not account_name or account_name == "default" or ":" in account_name:
+            raise HTTPException(status_code=400, detail="invalid account_name")
+
+        provider_id = f"{payload.base_provider}:{account_name}"
+        provider_dict = getattr(config, payload.base_provider)
+
+        if account_name in provider_dict:
+            raise HTTPException(status_code=409, detail="account already exists")
+
+        display_name_lower = payload.display_name.strip().lower()
+        for _k, v in provider_dict.items():
+            if v.display_name and v.display_name.strip().lower() == display_name_lower:
+                raise HTTPException(
+                    status_code=409, detail="display_name already exists for this provider"
+                )
+
+        home_dir = Path(payload.home_path).expanduser()
+        try:
+            home_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to create directory: {e}") from e
+
+        from quota_tracker.config import ProviderConfig
+
+        new_cfg = ProviderConfig(
+            enabled=True,
+            home_path=payload.home_path,
+            display_name=payload.display_name,
+        )
+        new_cfg.active_probe_enabled = True
+
+        conn = connect_db(str(db_path))
+        try:
+            apply_migrations(conn)
+            insert_provider_row(
+                conn, provider_id, enabled=True, config=new_cfg.model_dump()
+            )
+            # Update in-memory config and persist to config.json
+            provider_dict[account_name] = new_cfg
+            save_config(config, config_path_str)
+            conn.commit()
+        except Exception as e:
+            # Revert in-memory config on failure
+            provider_dict.pop(account_name, None)
+            conn.close()
+            if isinstance(e, HTTPException):
+                raise
+            raise HTTPException(status_code=500, detail=f"Database error: {e}") from e
+        finally:
+            conn.close()
+
+        return {"ok": True, "provider_id": provider_id}
+
     @app.patch("/api/providers/{provider_id}")
     def patch_provider(provider_id: str, payload: ProviderPatchRequest) -> dict[str, Any]:
         """Patch one provider configuration in DB."""
@@ -175,15 +239,100 @@ def register_routes(
             cfg = dict(row["config"])
             if payload.home_path is not None:
                 cfg["home_path"] = payload.home_path
+            if payload.display_name is not None:
+                display_name_clean = payload.display_name.strip()
+                if not display_name_clean:
+                    cfg["display_name"] = None
+                else:
+                    display_name_lower = display_name_clean.lower()
+                    provider_dict = getattr(config, base_id)
+                    for k, v in provider_dict.items():
+                        pid = f"{base_id}:{k}" if k != "default" else base_id
+                        if pid != provider_id and v.display_name:
+                            if v.display_name.strip().lower() == display_name_lower:
+                                raise HTTPException(
+                                    status_code=409,
+                                    detail="display_name already exists for this provider",
+                                )
+                    cfg["display_name"] = display_name_clean
             cfg["active_probe_enabled"] = True
             if payload.passive_sync_enabled is not None:
                 cfg["passive_sync_enabled"] = payload.passive_sync_enabled
             enabled = row["enabled"] if payload.enabled is None else payload.enabled
             update_provider_row(conn, provider_id, enabled=enabled, config=cfg)
+            
+            # Persist the same changes to config.json alongside the DB update.
+            parts = provider_id.split(":")
+            instance_name = parts[1] if len(parts) > 1 else "default"
+            provider_dict = getattr(config, base_id)
+            instance_cfg = provider_dict[instance_name]
+
+            if payload.home_path is not None:
+                instance_cfg.home_path = payload.home_path
+            instance_cfg.active_probe_enabled = True
+            if payload.passive_sync_enabled is not None:
+                instance_cfg.passive_sync_enabled = payload.passive_sync_enabled
+            if payload.enabled is not None:
+                instance_cfg.enabled = payload.enabled
+            if payload.display_name is not None:
+                display_name_clean = payload.display_name.strip()
+                instance_cfg.display_name = display_name_clean if display_name_clean else None
+
+            save_config(config, config_path_str)
             conn.commit()
-            return {"ok": True}
+        except Exception as e:
+            conn.close()
+            if isinstance(e, HTTPException):
+                raise
+            raise HTTPException(status_code=500, detail=f"Database error: {e}") from e
         finally:
             conn.close()
+
+        return {"ok": True}
+
+    @app.delete("/api/providers/{provider_id}")
+    def delete_provider(provider_id: str) -> dict[str, Any]:
+        """Delete a secondary provider account and its history."""
+
+        base_id = provider_id.split(":")[0]
+        if base_id not in {"gemini", "codex", "copilot", "claude"}:
+            raise HTTPException(status_code=404, detail="provider not found")
+
+        if ":" not in provider_id:
+            raise HTTPException(status_code=400, detail="cannot delete primary providers")
+
+        parts = provider_id.split(":")
+        instance_name = parts[1]
+
+        conn = connect_db(str(db_path))
+        try:
+            apply_migrations(conn)
+            rows = {row["id"]: row for row in list_provider_rows(conn)}
+            if provider_id not in rows:
+                raise HTTPException(status_code=404, detail="provider not found")
+
+            delete_provider_row(conn, provider_id)
+            
+            # Update in-memory config and persist to config.json
+            provider_dict = getattr(config, base_id)
+            if instance_name in provider_dict:
+                deleted_cfg = provider_dict.pop(instance_name)
+                try:
+                    save_config(config, config_path_str)
+                except Exception:
+                    provider_dict[instance_name] = deleted_cfg
+                    raise
+            
+            conn.commit()
+        except Exception as e:
+            conn.close()
+            if isinstance(e, HTTPException):
+                raise
+            raise HTTPException(status_code=500, detail=f"Database error: {e}") from e
+        finally:
+            conn.close()
+
+        return {"ok": True}
 
     @app.post("/api/providers/{provider_id}/scan")
     def manual_scan(provider_id: str, payload: ProviderActionRequest) -> dict[str, Any]:

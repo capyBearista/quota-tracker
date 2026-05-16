@@ -1,7 +1,9 @@
 """Database layer: schema, records, and CRUD helpers."""
 
 from quota_tracker.db.queries import (
+    delete_provider_row,
     get_provider_row,
+    insert_provider_row,
     insert_quota,
     insert_token_usage,
     list_provider_health,
@@ -31,6 +33,8 @@ __all__ = [
     "deterministic_session_id",
     "ensure_provider",
     "get_provider_row",
+    "insert_provider_row",
+    "delete_provider_row",
     "insert_quota",
     "insert_token_usage",
     "list_provider_health",

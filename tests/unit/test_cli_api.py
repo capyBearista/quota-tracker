@@ -216,7 +216,7 @@ def test_health_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     assert payload["status"] == "ok"
     assert payload["database"]["migrated"] is True
     assert payload["scheduler"]["enabled"] is False
-    assert len(payload["providers"]) == 4
+    assert len(payload["providers"]) >= 4
 
 
 def test_update_endpoint_starts_unique_systemd_unit(

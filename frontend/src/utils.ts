@@ -114,3 +114,14 @@ export function latestQuotas<T extends { provider_id: string; quota_name: string
   })
   return [...byKey.values()].sort((a, b) => a.provider_id.localeCompare(b.provider_id))
 }
+
+export function formatProviderName(id: string, displayName?: string | null): string {
+  const parts = id.split(":")
+  const base = parts[0]
+  const baseName = base.charAt(0).toUpperCase() + base.slice(1)
+  if (displayName) return `${baseName} (${displayName})`
+  if (parts.length > 1 && parts[1] !== "default") {
+    return `${baseName} (${parts[1]})`
+  }
+  return baseName
+}

@@ -287,3 +287,52 @@ def test_provider_patch_not_found_from_missing_row(
     client = TestClient(app)
     response = client.patch("/api/providers/codex", json={"enabled": True})
     assert response.status_code == 404
+
+
+def test_create_provider(tmp_path: Path) -> None:
+    db_path = tmp_path / "api.sqlite3"
+    _seed(db_path)
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+    
+    payload = {
+        "base_provider": "gemini",
+        "account_name": "testing",
+        "display_name": "Testing Alias",
+        "home_path": "~/.gemini-testing",
+    }
+    response = client.post("/api/providers", json=payload)
+    assert response.status_code == 200
+    assert response.json()["provider_id"] == "gemini:testing"
+    
+    # Verify it exists now
+    health = client.get("/api/providers").json()
+    assert any(p["id"] == "gemini:testing" for p in health["providers"])
+
+
+def test_delete_provider(tmp_path: Path) -> None:
+    db_path = tmp_path / "api.sqlite3"
+    _seed(db_path)
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    payload = {
+        "base_provider": "gemini",
+        "account_name": "testing2",
+        "display_name": "Testing Delete",
+        "home_path": "~/.gemini-testing-2",
+    }
+    client.post("/api/providers", json=payload)
+    health = client.get("/api/providers").json()
+    assert any(p["id"] == "gemini:testing2" for p in health["providers"])
+
+    # Try deleting primary provider (should fail)
+    response = client.delete("/api/providers/gemini")
+    assert response.status_code == 400
+
+    # Delete the secondary provider
+    response = client.delete("/api/providers/gemini:testing2")
+    assert response.status_code == 200
+
+    health = client.get("/api/providers").json()
+    assert not any(p["id"] == "gemini:testing2" for p in health["providers"])

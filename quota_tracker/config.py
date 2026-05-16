@@ -21,6 +21,7 @@ class ProviderConfig(BaseModel):
 
     enabled: bool = True
     home_path: str
+    display_name: str | None = None
     active_probe_enabled: bool = True
     passive_sync_enabled: bool = True
     safe_options: dict[str, str | int | float | bool | None] = Field(default_factory=dict)

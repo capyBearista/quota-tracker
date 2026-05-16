@@ -3,7 +3,7 @@ import { createPortal } from "react-dom"
 import { NavLink, useLocation } from "react-router-dom"
 import { useProviders } from "../../contexts/ProvidersContext"
 import { useVersion } from "../../hooks/useVersion"
-import { latestQuotas } from "../../utils"
+import { latestQuotas, formatProviderName } from "../../utils"
 import type { ProviderId } from "../../types"
 import { rollupGeminiQuotas, filterCopilotQuotas, filterClaudeQuotas } from "../ui/QuotaPanel"
 
@@ -66,16 +66,6 @@ export function Sidebar(): React.JSX.Element {
   }
 
   const providerIds = Array.from(new Set(providers.map(p => p.id)))
-  
-  function formatProviderName(id: string): string {
-    const parts = id.split(":")
-    const base = parts[0]
-    const baseName = base.charAt(0).toUpperCase() + base.slice(1)
-    if (parts.length > 1 && parts[1] !== "default") {
-      return `${baseName} (${parts[1]})`
-    }
-    return baseName
-  }
 
   const updatePopupNode = updatePopup
     ? createPortal(
@@ -176,12 +166,12 @@ export function Sidebar(): React.JSX.Element {
                   src={PROVIDER_LOGOS[baseId] || "/logos/default.png"}
                   width={18}
                   height={18}
-                  alt={formatProviderName(id)}
+                  alt={formatProviderName(id, providers.find(p => p.id === id)?.config?.display_name)}
                 />
               </span>
               <div className="nav-provider-body">
                 <div className="nav-provider-name">
-                  <span>{formatProviderName(id)}</span>
+                  <span>{formatProviderName(id, providers.find(p => p.id === id)?.config?.display_name)}</span>
                   {providerQuotas.length > 0 && (
                     <span
                       className={`nav-provider-pct${status === "crit" ? " crit" : status === "warn" ? " warn" : ""}`}

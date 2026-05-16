@@ -18,8 +18,18 @@ class ProviderPatchRequest(BaseModel):
 
     enabled: bool | None = None
     home_path: str | None = None
+    display_name: str | None = None
     active_probe_enabled: bool | None = None
     passive_sync_enabled: bool | None = None
+
+
+class ProviderCreateRequest(BaseModel):
+    """Secondary provider account creation payload."""
+
+    base_provider: str
+    account_name: str
+    display_name: str
+    home_path: str
 
 
 class ConfigPatchRequest(BaseModel):

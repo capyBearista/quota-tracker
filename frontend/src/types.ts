@@ -2,6 +2,7 @@ export type ProviderId = string
 
 export interface ProviderConfig {
   home_path: string
+  display_name?: string
   // Deprecated — optional so older server shapes still parse
   active_probe_enabled?: boolean
   passive_sync_enabled?: boolean
