@@ -400,3 +400,13 @@ def test_parse_usage_response_provider_and_source() -> None:
     records = _parse_usage_response(data, "2026-05-09T12:00:00+00:00")
     assert records[0].provider_id == "claude"
     assert records[0].source == "active_probe"
+
+
+def test_parse_usage_response_provider_override() -> None:
+    data = {"seven_day": {"utilization": 10.0, "resets_at": "2026-05-13T05:00:00+00:00"}}
+    records = _parse_usage_response(
+        data,
+        "2026-05-09T12:00:00+00:00",
+        provider_id="claude:secondary",
+    )
+    assert records[0].provider_id == "claude:secondary"

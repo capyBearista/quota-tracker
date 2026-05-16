@@ -8,7 +8,13 @@ from pathlib import Path
 
 from quota_tracker import _ui as ui
 from quota_tracker.config import AppConfig, save_config
-from quota_tracker.db import apply_migrations, connect_db, get_provider_row, update_provider_row
+from quota_tracker.db import (
+    apply_migrations,
+    connect_db,
+    get_provider_row,
+    insert_provider_row,
+    update_provider_row,
+)
 from quota_tracker.paths import DEFAULT_CONFIG_DIR, DEFAULT_LOG_DIR
 
 
@@ -179,13 +185,27 @@ def sync_provider_rows_from_config(config: AppConfig) -> None:
                 row = get_provider_row(conn, provider_id)
                 current = dict(row["config"]) if row is not None else {}
                 current["home_path"] = provider_cfg.home_path
+                current["display_name"] = provider_cfg.display_name
                 current["active_probe_enabled"] = True
                 current["passive_sync_enabled"] = provider_cfg.passive_sync_enabled
                 current.setdefault("high_water_marks", {})
                 safe_options = dict(current.get("safe_options", {}))
                 safe_options.update(provider_cfg.safe_options)
                 current["safe_options"] = safe_options
-                update_provider_row(conn, provider_id, enabled=provider_cfg.enabled, config=current)
+                if row is None:
+                    insert_provider_row(
+                        conn,
+                        provider_id,
+                        enabled=provider_cfg.enabled,
+                        config=current,
+                    )
+                else:
+                    update_provider_row(
+                        conn,
+                        provider_id,
+                        enabled=provider_cfg.enabled,
+                        config=current,
+                    )
         conn.commit()
     finally:
         conn.close()

@@ -121,6 +121,9 @@ export function Settings(): React.JSX.Element {
     setActionBusy(`delete-${id}`)
     try {
       await deleteProvider(id)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error"
+      window.alert(`Failed to delete account. ${errorMessage}`)
     } finally {
       setActionBusy(null)
     }
@@ -146,16 +149,21 @@ export function Settings(): React.JSX.Element {
       .replace(/^-+|-+$/g, "")
     if (!account_name) return
 
-    await createProvider({
-      base_provider: newBaseProvider,
-      account_name,
-      display_name: newDisplayName.trim(),
-      home_path: newHomePath.trim(),
-    })
-    setIsAddModalOpen(false)
-    setNewDisplayName("")
-    setNewHomePath("")
-    setHomePathEdited(false)
+    try {
+      await createProvider({
+        base_provider: newBaseProvider,
+        account_name,
+        display_name: newDisplayName.trim(),
+        home_path: newHomePath.trim(),
+      })
+      setIsAddModalOpen(false)
+      setNewDisplayName("")
+      setNewHomePath("")
+      setHomePathEdited(false)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error"
+      window.alert(`Failed to create account. ${errorMessage}`)
+    }
   }
 
   if (!config && !busy) {

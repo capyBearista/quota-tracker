@@ -312,6 +312,80 @@ def test_create_provider(tmp_path: Path) -> None:
     assert any(p["id"] == "gemini:testing" for p in health["providers"])
 
 
+def test_create_provider_validation_errors_and_conflicts(tmp_path: Path) -> None:
+    db_path = tmp_path / "api.sqlite3"
+    _seed(db_path)
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    base_payload = {
+        "base_provider": "gemini",
+        "account_name": "testing",
+        "display_name": "Testing Alias",
+        "home_path": str(tmp_path / "gemini-testing"),
+    }
+
+    response = client.post(
+        "/api/providers",
+        json={**base_payload, "base_provider": "unknown"},
+    )
+    assert response.status_code == 400
+
+    response = client.post(
+        "/api/providers",
+        json={**base_payload, "account_name": "default"},
+    )
+    assert response.status_code == 400
+
+    response = client.post("/api/providers", json=base_payload)
+    assert response.status_code == 200
+
+    response = client.post(
+        "/api/providers",
+        json={
+            **base_payload,
+            "display_name": "Another",
+            "home_path": str(tmp_path / "gemini-testing-dup"),
+        },
+    )
+    assert response.status_code == 409
+
+    response = client.post(
+        "/api/providers",
+        json={
+            **base_payload,
+            "account_name": "second",
+            "home_path": str(tmp_path / "gemini-second"),
+        },
+    )
+    assert response.status_code == 409
+
+
+def test_patch_provider_duplicate_display_name(tmp_path: Path) -> None:
+    db_path = tmp_path / "api.sqlite3"
+    _seed(db_path)
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    payload_a = {
+        "base_provider": "gemini",
+        "account_name": "alpha",
+        "display_name": "Alpha",
+        "home_path": str(tmp_path / "gemini-alpha"),
+    }
+    payload_b = {
+        "base_provider": "gemini",
+        "account_name": "beta",
+        "display_name": "Beta",
+        "home_path": str(tmp_path / "gemini-beta"),
+    }
+    assert client.post("/api/providers", json=payload_a).status_code == 200
+    assert client.post("/api/providers", json=payload_b).status_code == 200
+
+    response = client.patch("/api/providers/gemini:beta", json={"display_name": "Alpha"})
+    assert response.status_code == 409
+
+
 def test_delete_provider(tmp_path: Path) -> None:
     db_path = tmp_path / "api.sqlite3"
     _seed(db_path)

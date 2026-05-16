@@ -179,7 +179,11 @@ def _fetch_usage(session_key: str, org_id: str) -> dict[str, Any] | None:
         return None
 
 
-def _parse_usage_response(data: dict[str, Any], now: str) -> list[QuotaRecord]:
+def _parse_usage_response(
+    data: dict[str, Any],
+    now: str,
+    provider_id: str = "claude",
+) -> list[QuotaRecord]:
     """Parse the claude.ai usage API response into normalized quota records.
 
     Real response shape (as observed):
@@ -210,7 +214,7 @@ def _parse_usage_response(data: dict[str, Any], now: str) -> list[QuotaRecord]:
         window_minutes = _BUCKET_WINDOW_MINUTES.get(bucket_key)
         records.append(
             normalize_quota(
-                "claude",
+                provider_id,
                 quota_name,
                 now,
                 "active_probe",
@@ -235,8 +239,9 @@ class ClaudeAiProvider:
 
     metadata = ProviderMetadata("claude", "Claude", "~/.claude", True, True)
 
-    def __init__(self, home: str):
+    def __init__(self, home: str, provider_id: str = "claude"):
         self.home = Path(home).expanduser()
+        self.provider_id = provider_id
 
     def _session_files(self) -> list[Path]:
         """Discover Claude Code local project transcripts."""
@@ -344,7 +349,7 @@ class ClaudeAiProvider:
                     input_tokens + output_tokens + cached_tokens
                 )
                 usage_by_event[event_id] = normalize_token_usage(
-                    "claude",
+                    self.provider_id,
                     external_session_id,
                     event_id,
                     (
@@ -365,7 +370,7 @@ class ClaudeAiProvider:
 
             sessions.append(
                 normalize_session(
-                    "claude",
+                    self.provider_id,
                     external_session_id,
                     model_name,
                     project_path,
@@ -413,4 +418,4 @@ class ClaudeAiProvider:
             return []
         _ORG_ID_CACHE[session_key] = org_id
         now = datetime.now(UTC).isoformat()
-        return _parse_usage_response(data, now)
+        return _parse_usage_response(data, now, provider_id=self.provider_id)

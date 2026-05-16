@@ -262,3 +262,27 @@ def test_copilot_active_probe_missing_quota_headers_raises(
 
     with pytest.raises(CopilotProbeError, match="no quota headers"):
         p.active_probe()
+
+
+def test_copilot_provider_id_override(tmp_path: Path) -> None:
+    d = tmp_path / "session-state" / "abc"
+    d.mkdir(parents=True)
+    f = d / "events.jsonl"
+    f.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "timestamp": "2026-01-01T00:00:00+00:00",
+                        "type": "session.shutdown",
+                        "input_tokens": 1,
+                        "output_tokens": 2,
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
+    p = CopilotProvider(str(tmp_path), provider_id="copilot:alt")
+    r = p.passive_scan_full()
+    assert r.token_usage[0]["provider_id"] == "copilot:alt"

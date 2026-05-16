@@ -81,7 +81,6 @@ export function ProviderDetail(): React.JSX.Element {
     } = useDashboard(providerId ?? undefined, range, selectedModel)
 
   const handleTitleSave = useCallback(async () => {
-    setEditingTitle(false)
     if (!providerId) return
     const trimmed = titleDraft.trim()
     
@@ -92,11 +91,20 @@ export function ProviderDetail(): React.JSX.Element {
     }
 
     const currentDisplayName = providers.find((p) => p.id === providerId)?.config?.display_name ?? ""
-    if (newDisplayName === currentDisplayName) return
-    
-    await updateProvider(providerId, { display_name: newDisplayName })
-    refresh()
-    refreshProviders()
+    if (newDisplayName === currentDisplayName) {
+      setEditingTitle(false)
+      return
+    }
+
+    try {
+      await updateProvider(providerId, { display_name: newDisplayName })
+      setEditingTitle(false)
+      refresh()
+      refreshProviders()
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error"
+      window.alert(`Failed to rename account. ${errorMessage}`)
+    }
   }, [titleDraft, providerId, providers, updateProvider, refresh, refreshProviders])
 
   if (!providerId) {

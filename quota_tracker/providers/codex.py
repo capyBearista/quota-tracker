@@ -41,11 +41,12 @@ class CodexProvider:
 
     metadata = ProviderMetadata("codex", "Codex", "~/.codex", True, True)
 
-    def __init__(self, home: str, include_archived: bool = True):
+    def __init__(self, home: str, include_archived: bool = True, provider_id: str = "codex"):
         """Initialize provider options."""
 
         self.home = Path(home).expanduser()
         self.include_archived = include_archived
+        self.provider_id = provider_id
 
     def _session_files(self) -> list[Path]:
         """Discover session files including archived files when enabled."""
@@ -104,7 +105,7 @@ class CodexProvider:
 
                     usage.append(
                         normalize_token_usage(
-                            "codex",
+                            self.provider_id,
                             sid,
                             eid,
                             ev.get("timestamp") or datetime.now(UTC).isoformat(),
@@ -122,7 +123,7 @@ class CodexProvider:
             project_name = Path(cwd).name if cwd else None
             sessions.append(
                 normalize_session(
-                    "codex",
+                    self.provider_id,
                     sid,
                     model,
                     cwd,
@@ -214,7 +215,7 @@ class CodexProvider:
             reset_at = window.get("reset_at")
             records.append(
                 normalize_quota(
-                    "codex",
+                    self.provider_id,
                     window_name,
                     now,
                     "active_probe",

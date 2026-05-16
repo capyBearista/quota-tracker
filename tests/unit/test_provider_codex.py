@@ -278,3 +278,25 @@ def test_codex_model_from_payload(tmp_path: Path) -> None:
     r = p.passive_scan_full()
     assert len(r.token_usage) == 1
     assert r.token_usage[0]["model_name"] == "o3"
+
+
+def test_codex_provider_id_override(tmp_path: Path) -> None:
+    d = tmp_path / "sessions" / "p"
+    d.mkdir(parents=True)
+    (d / "s1.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "token_count",
+                        "timestamp": "2026-01-01T00:00:00+00:00",
+                        "usage": {"input_tokens": 1},
+                    }
+                ),
+            ]
+        )
+    )
+    p = CodexProvider(str(tmp_path), provider_id="codex:secondary")
+    r = p.passive_scan_full()
+    assert r.sessions[0].provider_id == "codex:secondary"
+    assert r.token_usage[0]["provider_id"] == "codex:secondary"

@@ -112,11 +112,15 @@ class DaemonService:
             return GeminiProvider(home=home, project_id=project_id, provider_id=provider_id)
         if base_id == "codex":
             include_archived = bool(config.get("safe_options", {}).get("include_archived", True))
-            return CodexProvider(home=home, include_archived=include_archived)
+            return CodexProvider(
+                home=home,
+                include_archived=include_archived,
+                provider_id=provider_id,
+            )
         if base_id == "copilot":
-            return CopilotProvider(home=home)
+            return CopilotProvider(home=home, provider_id=provider_id)
         if base_id == "claude":
-            return ClaudeAiProvider(home=home)
+            return ClaudeAiProvider(home=home, provider_id=provider_id)
         raise ValueError(f"unsupported provider_id: {provider_id}")
 
     def _provider_ids(self, provider: str) -> list[str]:

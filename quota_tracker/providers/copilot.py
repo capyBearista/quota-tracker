@@ -276,9 +276,10 @@ class CopilotProvider:
 
     metadata = ProviderMetadata("copilot", "Copilot", "~/.copilot", True, True)
 
-    def __init__(self, home: str):
+    def __init__(self, home: str, provider_id: str = "copilot"):
         """Initialize provider options."""
         self.home = Path(home).expanduser()
+        self.provider_id = provider_id
 
     def _event_files(self) -> list[Path]:
         """Discover Copilot session event files."""
@@ -376,7 +377,7 @@ class CopilotProvider:
 
                     usage.append(
                         normalize_token_usage(
-                            "copilot",
+                            self.provider_id,
                             sid,
                             eid,
                             timestamp,
@@ -414,7 +415,7 @@ class CopilotProvider:
                     )
             sessions.append(
                 normalize_session(
-                    "copilot",
+                    self.provider_id,
                     sid,
                     next(iter(models_seen), "unknown"),
                     cwd,
@@ -472,14 +473,18 @@ class CopilotProvider:
         return self._scan(high_water_marks)
 
     @staticmethod
-    def parse_quota_headers(headers: dict[str, str], timestamp: str) -> list[QuotaRecord]:
+    def parse_quota_headers(
+        headers: dict[str, str],
+        timestamp: str,
+        provider_id: str = "copilot",
+    ) -> list[QuotaRecord]:
         """Parse Copilot quota response headers into normalized quota records."""
         parsed = _extract_quota_headers(headers)
         out: list[QuotaRecord] = []
         for quota_name, data in parsed.items():
             out.append(
                 normalize_quota(
-                    "copilot",
+                    provider_id,
                     quota_name,
                     timestamp,
                     "active_probe",
@@ -528,7 +533,11 @@ class CopilotProvider:
         if status_code >= 400:
             raise CopilotProbeError(f"Copilot quota probe returned HTTP {status_code}")
         now = datetime.now(UTC).isoformat()
-        quotas = self.parse_quota_headers(response_headers, now)
+        quotas = self.parse_quota_headers(
+            response_headers,
+            now,
+            provider_id=self.provider_id,
+        )
         if not quotas:
             raise CopilotProbeError("Copilot quota probe returned no quota headers")
         return quotas

@@ -230,6 +230,9 @@ def register_routes(
         if base_id not in {"gemini", "codex", "copilot", "claude"}:
             raise HTTPException(status_code=404, detail="provider not found")
         conn = connect_db(str(db_path))
+        provider_dict: dict[str, Any] = getattr(config, base_id)
+        instance_name: str | None = None
+        original_instance_cfg = None
         try:
             apply_migrations(conn)
             rows = {row["id"]: row for row in list_provider_rows(conn)}
@@ -245,7 +248,6 @@ def register_routes(
                     cfg["display_name"] = None
                 else:
                     display_name_lower = display_name_clean.lower()
-                    provider_dict = getattr(config, base_id)
                     for k, v in provider_dict.items():
                         pid = f"{base_id}:{k}" if k != "default" else base_id
                         if pid != provider_id and v.display_name:
@@ -264,8 +266,8 @@ def register_routes(
             # Persist the same changes to config.json alongside the DB update.
             parts = provider_id.split(":")
             instance_name = parts[1] if len(parts) > 1 else "default"
-            provider_dict = getattr(config, base_id)
             instance_cfg = provider_dict[instance_name]
+            original_instance_cfg = instance_cfg.model_copy()
 
             if payload.home_path is not None:
                 instance_cfg.home_path = payload.home_path
@@ -281,6 +283,8 @@ def register_routes(
             save_config(config, config_path_str)
             conn.commit()
         except Exception as e:
+            if provider_dict is not None and instance_name is not None and original_instance_cfg:
+                provider_dict[instance_name] = original_instance_cfg
             conn.close()
             if isinstance(e, HTTPException):
                 raise

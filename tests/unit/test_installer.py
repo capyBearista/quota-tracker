@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from quota_tracker.config import AppConfig
+from quota_tracker.config import AppConfig, ProviderConfig
 from quota_tracker.db import apply_migrations, connect_db, get_provider_row, update_provider_row
 from quota_tracker.installer import (
     _input_with_default,
@@ -47,6 +47,13 @@ def test_merge_config_idempotent_updates() -> None:
     assert merged.daemon.active_probe_interval_minutes == 10
     assert merged.gemini["default"].enabled is False
     assert merged.gemini["default"].home_path == "/tmp/g"
+
+
+def test_migrate_legacy_providers() -> None:
+    legacy = {"gemini": {"home_path": "~/.gemini", "enabled": True}}
+    cfg = AppConfig.model_validate(legacy)
+    assert cfg.gemini["default"].home_path == "~/.gemini"
+    assert cfg.gemini["default"].enabled is True
 
 
 def test_merge_config_validation_errors() -> None:
@@ -209,6 +216,26 @@ def test_sync_provider_rows_preserves_runtime_safe_options(tmp_path: Path) -> No
         assert row["enabled"] is False
         assert row["config"]["home_path"] == str(tmp_path / "gemini-home")
         assert row["config"]["safe_options"]["last_successful_probe_at"].startswith("2026")
+    finally:
+        conn.close()
+
+
+def test_sync_provider_rows_preserves_display_name_on_insert(tmp_path: Path) -> None:
+    db_path = tmp_path / "quota.sqlite3"
+    cfg = AppConfig()
+    cfg.daemon.database_path = str(db_path)
+    cfg.gemini["work"] = ProviderConfig(
+        home_path=str(tmp_path / "gemini-work"),
+        display_name="Gemini Work",
+    )
+
+    sync_provider_rows_from_config(cfg)
+
+    conn = connect_db(str(db_path))
+    try:
+        row = get_provider_row(conn, "gemini:work")
+        assert row is not None
+        assert row["config"]["display_name"] == "Gemini Work"
     finally:
         conn.close()
 
