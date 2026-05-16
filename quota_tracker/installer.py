@@ -64,16 +64,19 @@ def merge_config(base: AppConfig, updates: dict[str, object]) -> AppConfig:
         if not isinstance(provider_updates, dict):
             continue
         target_dict = getattr(base, provider)
-        target = target_dict.get("default")
-        if not target:
-            from quota_tracker.config import ProviderConfig
-
-            target = ProviderConfig(home_path=f"~/.{provider}")
-            target_dict["default"] = target
-        if "enabled" in provider_updates:
-            target.enabled = bool(provider_updates["enabled"])
-        if "home_path" in provider_updates:
-            target.home_path = str(provider_updates["home_path"])
+        for account_name, account_updates in provider_updates.items():
+            if not isinstance(account_updates, dict):
+                continue
+            target = target_dict.get(account_name)
+            if not target:
+                from quota_tracker.config import ProviderConfig
+    
+                target = ProviderConfig(home_path=f"~/.{provider}")
+                target_dict[account_name] = target
+            if "enabled" in account_updates:
+                target.enabled = bool(account_updates["enabled"])
+            if "home_path" in account_updates:
+                target.home_path = str(account_updates["home_path"])
     return base
 
 

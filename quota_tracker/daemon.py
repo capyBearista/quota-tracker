@@ -185,7 +185,10 @@ class DaemonService:
             apply_migrations(conn)
             rows = {row["id"]: row for row in list_provider_rows(conn)}
             for provider_id in selected:
-                row = rows[provider_id]
+                row = rows.get(provider_id)
+                if not row:
+                    LOGGER.warning("provider_id %s not found in DB rows", provider_id)
+                    continue
                 if not row["enabled"]:
                     continue
                 started = time.time()
@@ -273,7 +276,10 @@ class DaemonService:
             apply_migrations(conn)
             rows = {row["id"]: row for row in list_provider_rows(conn)}
             for provider_id in selected:
-                row = rows[provider_id]
+                row = rows.get(provider_id)
+                if not row:
+                    LOGGER.warning("provider_id %s not found in DB rows", provider_id)
+                    continue
                 if not row["enabled"]:
                     continue
                 started = time.time()

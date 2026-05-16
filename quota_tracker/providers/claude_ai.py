@@ -13,6 +13,7 @@ from quota_tracker.db import QuotaRecord
 from quota_tracker.providers.base import (
     PassiveSyncResult,
     ProviderMetadata,
+    ProviderProbeError,
     normalize_quota,
     normalize_session,
     normalize_token_usage,
@@ -145,20 +146,24 @@ def _fetch_org_id(session_key: str) -> str:
 
     get_json wraps list responses as {"value": [...]}, so we unwrap when needed.
     """
-    data = get_json(
-        _CLAUDE_ORGS_URL,
-        headers={
-            **_CLAUDE_REQUEST_HEADERS,
-            "Cookie": f"sessionKey={session_key}",
-        },
-    )
+    try:
+        data = get_json(
+            _CLAUDE_ORGS_URL,
+            headers={
+                **_CLAUDE_REQUEST_HEADERS,
+                "Cookie": f"sessionKey={session_key}",
+            },
+        )
+    except Exception as e:
+        raise ProviderProbeError(f"Failed to fetch organization ID: {e}") from e
+
     orgs = data.get("value") if isinstance(data, dict) else data
     if not isinstance(orgs, list) or not orgs:
-        raise RuntimeError("No organizations found in Claude API response")
+        raise ProviderProbeError("No organizations found in Claude API response")
     org = orgs[0]
     uuid = org.get("uuid") if isinstance(org, dict) else None
     if not isinstance(uuid, str) or not uuid.strip():
-        raise RuntimeError("First organization in Claude API response has no uuid")
+        raise ProviderProbeError("First organization in Claude API response has no uuid")
     return uuid.strip()
 
 
@@ -175,8 +180,9 @@ def _fetch_usage(session_key: str, org_id: str) -> dict[str, Any] | None:
                 "Cookie": f"sessionKey={session_key}",
             },
         )
-    except Exception:
-        return None
+    except Exception as e:
+        LOGGER.exception("Failed to fetch Claude usage")
+        raise ProviderProbeError(f"Failed to fetch Claude usage: {e}") from e
 
 
 def _parse_usage_response(
@@ -400,22 +406,25 @@ class ClaudeAiProvider:
         session_key = _load_session_key(self.home)
         if not session_key:
             LOGGER.warning("No Claude session key found in %s", self.home)
-            return []
+            raise ProviderProbeError("No Claude session key found")
         org_id = _load_org_id_from_file(self.home) or _ORG_ID_CACHE.get(session_key)
         org_loaded_without_fetch = org_id is not None
         if not org_id:
             org_id = _fetch_org_id(session_key)
             if not org_id:
-                return []
-        data = _fetch_usage(session_key, org_id)
+                raise ProviderProbeError("Failed to resolve organization ID")
+        try:
+            data = _fetch_usage(session_key, org_id)
+        except ProviderProbeError:
+            data = None
         if data is None and org_loaded_without_fetch:
             refreshed_org_id = _fetch_org_id(session_key)
             if not refreshed_org_id:
-                return []
+                raise ProviderProbeError("Failed to refresh organization ID")
             org_id = refreshed_org_id
             data = _fetch_usage(session_key, org_id)
         if data is None:
-            return []
+            raise ProviderProbeError("Failed to fetch Claude usage data")
         _ORG_ID_CACHE[session_key] = org_id
         now = datetime.now(UTC).isoformat()
         return _parse_usage_response(data, now, provider_id=self.provider_id)

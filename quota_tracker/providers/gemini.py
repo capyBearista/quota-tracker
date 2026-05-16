@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 import urllib.parse
@@ -16,11 +17,14 @@ from quota_tracker.db import QuotaRecord
 from quota_tracker.providers.base import (
     PassiveSyncResult,
     ProviderMetadata,
+    ProviderProbeError,
     normalize_quota,
     normalize_session,
     normalize_token_usage,
 )
 from quota_tracker.providers.http import post_json, ssl_context
+
+LOGGER = logging.getLogger(__name__)
 
 _CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
 _CODE_ASSIST_API_VERSION = "v1internal"
@@ -401,14 +405,15 @@ class GeminiProvider:
             return []
         try:
             creds = json.loads(oauth_path.read_text(encoding="utf-8", errors="replace"))
-        except Exception:
-            return []
+        except Exception as e:
+            LOGGER.exception("Failed to probe Gemini quota: credentials decode error")
+            raise ProviderProbeError(f"Credentials decode error: {e}") from e
         if not isinstance(creds, dict):
             return []
         try:
             token = _get_access_token(creds)
             if not token:
-                return []
+                raise ProviderProbeError("Failed to obtain valid access token")
             explicit_project = self.project_id or _project_from_env()
             load_result = post_json(
                 _code_assist_url("loadCodeAssist"),
@@ -420,10 +425,13 @@ class GeminiProvider:
             )
             project = load_result.get("cloudaicompanionProject") or explicit_project
             if not isinstance(project, str) or not project:
-                return []
+                raise ProviderProbeError("Failed to resolve cloudaicompanionProject")
             buckets = _retrieve_quota_buckets(token, project)
-        except Exception:
-            return []
+        except Exception as e:
+            LOGGER.exception("Failed to probe Gemini quota: API error")
+            if isinstance(e, ProviderProbeError):
+                raise
+            raise ProviderProbeError(f"Gemini API error: {e}") from e
         now = datetime.now(UTC).isoformat()
         # Emit one row per (model_id, token_type) bucket; frontend rolls up to families.
         return [

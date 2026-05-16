@@ -208,8 +208,8 @@ def register_routes(
             )
             # Update in-memory config and persist to config.json
             provider_dict[account_name] = new_cfg
-            save_config(config, config_path_str)
             conn.commit()
+            save_config(config, config_path_str)
         except Exception as e:
             # Revert in-memory config on failure
             provider_dict.pop(account_name, None)
@@ -266,6 +266,8 @@ def register_routes(
             # Persist the same changes to config.json alongside the DB update.
             parts = provider_id.split(":")
             instance_name = parts[1] if len(parts) > 1 else "default"
+            if instance_name not in provider_dict:
+                raise HTTPException(status_code=404, detail="Account found in DB but missing from config")
             instance_cfg = provider_dict[instance_name]
             original_instance_cfg = instance_cfg.model_copy()
 
@@ -280,8 +282,8 @@ def register_routes(
                 display_name_clean = payload.display_name.strip()
                 instance_cfg.display_name = display_name_clean if display_name_clean else None
 
-            save_config(config, config_path_str)
             conn.commit()
+            save_config(config, config_path_str)
         except Exception as e:
             if provider_dict is not None and instance_name is not None and original_instance_cfg:
                 provider_dict[instance_name] = original_instance_cfg
@@ -316,6 +318,7 @@ def register_routes(
                 raise HTTPException(status_code=404, detail="provider not found")
 
             delete_provider_row(conn, provider_id)
+            conn.commit()
             
             # Update in-memory config and persist to config.json
             provider_dict = getattr(config, base_id)
@@ -326,8 +329,6 @@ def register_routes(
                 except Exception:
                     provider_dict[instance_name] = deleted_cfg
                     raise
-            
-            conn.commit()
         except Exception as e:
             conn.close()
             if isinstance(e, HTTPException):

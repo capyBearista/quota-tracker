@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -13,11 +14,14 @@ from quota_tracker.db import QuotaRecord
 from quota_tracker.providers.base import (
     PassiveSyncResult,
     ProviderMetadata,
+    ProviderProbeError,
     normalize_quota,
     normalize_session,
     normalize_token_usage,
 )
 from quota_tracker.providers.http import get_json
+
+LOGGER = logging.getLogger(__name__)
 
 _WHAM_URL = "https://chatgpt.com/backend-api/wham/usage"
 _WHAM_USER_AGENT = (
@@ -185,11 +189,12 @@ class CodexProvider:
             return []
         try:
             auth = json.loads(auth_path.read_text(encoding="utf-8", errors="replace"))
-        except Exception:
-            return []
+        except Exception as e:
+            LOGGER.exception("Failed to probe Codex quota: auth.json read error")
+            raise ProviderProbeError(f"Auth file read error: {e}") from e
         access_token = (auth.get("tokens") or {}).get("access_token") or ""
         if not isinstance(access_token, str) or not access_token:
-            return []
+            raise ProviderProbeError("No access token found in auth.json")
         try:
             data = get_json(
                 _WHAM_URL,
@@ -199,11 +204,12 @@ class CodexProvider:
                     "Accept": "*/*",
                 },
             )
-        except Exception:
-            return []
+        except Exception as e:
+            LOGGER.exception("Failed to probe Codex quota: API error")
+            raise ProviderProbeError(f"Codex API error: {e}") from e
         rate_limit = data.get("rate_limit")
         if not isinstance(rate_limit, dict):
-            return []
+            raise ProviderProbeError("Rate limit data missing from response")
         now = datetime.now(UTC).isoformat()
         records: list[QuotaRecord] = []
         for window_name in ("primary", "secondary"):

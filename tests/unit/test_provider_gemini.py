@@ -434,3 +434,44 @@ def test_gemini_cached_tokens_subtraction(tmp_path: Path) -> None:
     assert result.token_usage[0]["input_tokens"] == 60  # 100 - 40
     assert result.token_usage[0]["cached_tokens"] == 40
     assert result.token_usage[0]["total_tokens"] == 150
+
+
+def test_gemini_provider_id_override(tmp_path: Path) -> None:
+    chats = tmp_path / "tmp" / "a" / "chats"
+    chats.mkdir(parents=True)
+    f = chats / "s1.jsonl"
+    f.write_text(
+        json.dumps(
+            {
+                "sessionId": "sess-override",
+                "startTime": "2026-01-01T00:00:00+00:00",
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "type": "gemini",
+                "id": "ev-1",
+                "timestamp": "2026-01-01T00:00:01+00:00",
+                "model": "gemini-2.5-pro",
+                "tokens": {"input": 1, "output": 2, "total": 3},
+            }
+        )
+        + "\n"
+    )
+    p = GeminiProvider(str(tmp_path), provider_id="gemini:work")
+    full = p.passive_scan_full()
+    assert len(full.sessions) == 1
+    assert full.sessions[0].provider_id == "gemini:work"
+    assert len(full.token_usage) == 1
+    assert full.token_usage[0]["provider_id"] == "gemini:work"
+
+    (tmp_path / "oauth_creds.json").write_text(json.dumps({"access_token": "tok"}))
+    with (
+        patch("quota_tracker.providers.gemini._get_access_token", return_value="tok"),
+        patch("quota_tracker.providers.gemini.post_json", return_value={"cloudaicompanionProject": "proj"}),
+        patch("quota_tracker.providers.gemini._retrieve_quota_buckets", return_value=[{"model_id": "m1", "token_type": "input", "remaining_percent": 10.0}]),
+    ):
+        records = p.active_probe()
+    assert len(records) == 1
+    assert records[0].provider_id == "gemini:work"

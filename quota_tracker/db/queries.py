@@ -208,7 +208,7 @@ def insert_provider_row(
         """
         INSERT INTO providers(id, enabled, config, created_at, updated_at)
         VALUES(?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO NOTHING
+        ON CONFLICT(id) DO UPDATE SET config=excluded.config, updated_at=excluded.updated_at, enabled=excluded.enabled
         """,
         (provider_id, 1 if enabled else 0, validate_json_text(config), now, now),
     )

@@ -131,6 +131,9 @@ def _apply_config_set(config: AppConfig, args: argparse.Namespace) -> AppConfig:
 
     if args.provider:
         base_id = args.provider.split(":")[0]
+        if base_id not in ["gemini", "codex", "copilot", "claude"]:
+            import sys
+            sys.exit(f"Error: Invalid provider '{base_id}'")
         provider_dict = getattr(config, base_id)
         account_name = args.provider.split(":")[1] if ":" in args.provider else "default"
         if account_name not in provider_dict:

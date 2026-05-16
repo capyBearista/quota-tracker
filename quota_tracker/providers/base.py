@@ -31,6 +31,11 @@ class PassiveSyncResult:
     parse_failures: int
 
 
+class ProviderProbeError(Exception):
+    """Raised when an active quota probe fails."""
+    pass
+
+
 class Provider(Protocol):
     """Common provider contract."""
 

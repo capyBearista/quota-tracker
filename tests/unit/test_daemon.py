@@ -388,3 +388,38 @@ def test_missing_provider_row_noop_paths(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.setattr("quota_tracker.daemon.get_provider_row", lambda conn, provider_id: None)
     service.set_provider_enabled("gemini", True)
     service.reset_high_water_marks("gemini")
+
+
+def test_daemon_tick_multi_account(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "db.sqlite3"
+    service = DaemonService(str(db_path), sync_interval_minutes=15)
+    service.migrate_and_prepare()
+
+    conn = connect_db(str(db_path))
+    try:
+        from quota_tracker.db.queries import insert_provider_row
+        cfg = {"home_path": str(tmp_path / "gemini-work"), "safe_options": {}}
+        insert_provider_row(conn, "gemini:work", enabled=True, config=cfg)
+        conn.commit()
+    finally:
+        conn.close()
+
+    calls: list[str] = []
+    
+    # We monkeypatch the underlying scan/probe instead to verify they are called correctly
+    def fake_scan(provider="all", full=False):
+        calls.append(f"scan:{provider}")
+        return type("SyncSummary", (), {"sessions_upserted": 0, "token_rows_inserted": 0, "quota_rows_inserted": 0, "parse_failures": 0, "failed_providers": []})()
+        
+    def fake_probe(provider="all"):
+        calls.append(f"probe:{provider}")
+        return type("SyncSummary", (), {"sessions_upserted": 0, "token_rows_inserted": 0, "quota_rows_inserted": 0, "parse_failures": 0, "failed_providers": []})()
+
+    monkeypatch.setattr(service, "run_scan", fake_scan)
+    monkeypatch.setattr(service, "run_probe", fake_probe)
+    
+    service.tick()
+    
+    assert "scan:all" in calls
+    assert "probe:gemini" in calls
+    assert "probe:gemini:work" in calls
