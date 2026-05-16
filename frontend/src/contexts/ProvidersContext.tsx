@@ -7,6 +7,7 @@ interface ProvidersContextValue {
   quotas: QuotaRow[]
   range: Range
   setRange: (r: Range) => void
+  refreshProviders: () => void
 }
 
 export const ProvidersContext = createContext<ProvidersContextValue>({
@@ -14,6 +15,7 @@ export const ProvidersContext = createContext<ProvidersContextValue>({
   quotas: [],
   range: "7d",
   setRange: () => {},
+  refreshProviders: () => {},
 })
 
 export function useProviders(): ProvidersContextValue {

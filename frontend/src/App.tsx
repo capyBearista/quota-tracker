@@ -30,7 +30,7 @@ export default function App(): React.JSX.Element {
   }, [fetchBaseline])
 
   return (
-    <ProvidersContext.Provider value={{ providers, quotas, range, setRange }}>
+    <ProvidersContext.Provider value={{ providers, quotas, range, setRange, refreshProviders: fetchBaseline }}>
       <BrowserRouter>
         <div className="shell">
           <Sidebar />

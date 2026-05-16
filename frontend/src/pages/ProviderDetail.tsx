@@ -44,7 +44,7 @@ function statusFor(pct: number): "crit" | "warn" | "ok" {
 
 export function ProviderDetail(): React.JSX.Element {
   const { id } = useParams<{ id: string }>()
-  const { range, setRange } = useProviders()
+  const { range, setRange, refreshProviders } = useProviders()
   const [sessionPage, setSessionPage] = useState(0)
   const [selectedModel, setSelectedModel] = useState<string>("all")
   const [chartMode, setChartMode] = useState<"tokens" | "cost">("tokens")
@@ -86,8 +86,8 @@ export function ProviderDetail(): React.JSX.Element {
     const trimmed = titleDraft.trim()
     
     let newDisplayName = trimmed
-    const defaultName = formatProviderName(providerId)
-    if (trimmed === defaultName || trimmed === "") {
+    const defaultAlias = providerId.includes(":") ? providerId.split(":")[1] : ""
+    if (trimmed === defaultAlias || trimmed === "") {
       newDisplayName = ""
     }
 
@@ -96,7 +96,8 @@ export function ProviderDetail(): React.JSX.Element {
     
     await updateProvider(providerId, { display_name: newDisplayName })
     refresh()
-  }, [titleDraft, providerId, providers, updateProvider, refresh])
+    refreshProviders()
+  }, [titleDraft, providerId, providers, updateProvider, refresh, refreshProviders])
 
   if (!providerId) {
     return (
@@ -247,46 +248,120 @@ export function ProviderDetail(): React.JSX.Element {
           <div>
             <div className="provider-page-title">
               {editingTitle ? (
-                <input
-                  autoFocus
-                  value={titleDraft}
-                  onChange={(e) => setTitleDraft(e.target.value)}
-                  onBlur={handleTitleSave}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault()
-                      e.currentTarget.blur()
-                    }
-                    if (e.key === "Escape") {
-                      e.preventDefault()
-                      setTitleDraft(provider?.config?.display_name ?? formatProviderName(providerId))
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input
+                    autoFocus
+                    value={titleDraft}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onBlur={() => {
+                      setTitleDraft(provider?.config?.display_name ?? (providerId.includes(":") ? providerId.split(":")[1] : ""))
                       setEditingTitle(false)
-                    }
-                  }}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    outline: "none",
-                    color: providerColor,
-                    fontSize: "inherit",
-                    fontWeight: "inherit",
-                    fontFamily: "inherit",
-                    padding: 0,
-                    margin: 0,
-                    width: "auto",
-                  }}
-                />
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault()
+                        handleTitleSave()
+                      }
+                      if (e.key === "Escape") {
+                        e.preventDefault()
+                        setTitleDraft(provider?.config?.display_name ?? (providerId.includes(":") ? providerId.split(":")[1] : ""))
+                        setEditingTitle(false)
+                      }
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      outline: "none",
+                      color: providerColor,
+                      fontSize: "inherit",
+                      fontWeight: "inherit",
+                      fontFamily: "inherit",
+                      padding: 0,
+                      margin: 0,
+                      width: "auto",
+                      borderBottom: `1px dashed ${providerColor}`,
+                    }}
+                  />
+                  <button
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      handleTitleSave()
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "var(--ok)",
+                      display: "flex",
+                      alignItems: "center",
+                      padding: 4,
+                    }}
+                    title="Save"
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  </button>
+                  <button
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      setTitleDraft(provider?.config?.display_name ?? (providerId.includes(":") ? providerId.split(":")[1] : ""))
+                      setEditingTitle(false)
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "var(--fg-3)",
+                      display: "flex",
+                      alignItems: "center",
+                      padding: 4,
+                    }}
+                    title="Cancel"
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18"></line>
+                      <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                  </button>
+                </div>
               ) : (
-                <span
-                  style={{ color: providerColor, cursor: "pointer" }}
-                  onClick={() => {
-                    setTitleDraft(provider?.config?.display_name ?? formatProviderName(providerId))
-                    setEditingTitle(true)
-                  }}
-                  title="Click to rename"
-                >
-                  {formatProviderName(providerId, provider?.config?.display_name)}
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span
+                    style={{ color: providerColor, cursor: "pointer" }}
+                    onClick={() => {
+                      setTitleDraft(provider?.config?.display_name ?? (providerId.includes(":") ? providerId.split(":")[1] : ""))
+                      setEditingTitle(true)
+                    }}
+                    title="Click to rename"
+                  >
+                    {formatProviderName(providerId, provider?.config?.display_name)}
+                  </span>
+                  <button
+                    onClick={() => {
+                      setTitleDraft(provider?.config?.display_name ?? (providerId.includes(":") ? providerId.split(":")[1] : ""))
+                      setEditingTitle(true)
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "var(--fg-3)",
+                      display: "flex",
+                      alignItems: "center",
+                      padding: 4,
+                      opacity: 0.7,
+                    }}
+                    title="Rename account"
+                    onMouseEnter={(e) => e.currentTarget.style.opacity = "1"}
+                    onMouseLeave={(e) => e.currentTarget.style.opacity = "0.7"}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                    </svg>
+                  </button>
+                </div>
               )}
               <span
                 className={`crumb-status${worstStatus === "crit" ? " crit" : worstStatus === "warn" ? " warn" : ""}`}
