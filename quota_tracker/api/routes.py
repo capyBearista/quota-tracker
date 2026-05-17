@@ -807,6 +807,13 @@ def register_routes(
     async def get_version() -> dict[str, Any]:
         """Return current version and latest available release from GitHub."""
 
+        def _detect_install_method() -> str:
+            import sys as _sys
+
+            if "/nix/store/" in _sys.executable:
+                return "nix"
+            return "curl"
+
         latest: str | None = None
         update_available = False
         try:
@@ -823,7 +830,12 @@ def register_routes(
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning("Failed to check for updates: %s", e)
-        return {"current": __version__, "latest": latest, "update_available": update_available}
+        return {
+            "current": __version__,
+            "latest": latest,
+            "update_available": update_available,
+            "install_method": _detect_install_method(),
+        }
 
     @app.post("/api/update")
     def trigger_update() -> dict[str, str]:
