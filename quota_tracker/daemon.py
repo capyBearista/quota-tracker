@@ -341,7 +341,12 @@ class DaemonService:
                 if not last_sync:
                     scan_due = True
                 else:
-                    delta = now - datetime.fromisoformat(last_sync)
+                    try:
+                        delta = now - datetime.fromisoformat(last_sync)
+                    except (ValueError, TypeError):
+                        LOGGER.warning("Malformed last_sync timestamp for %s, treating as due", row["id"])
+                        scan_due = True
+                        continue
                     if delta.total_seconds() >= self.passive_sync_interval_minutes * 60:
                         scan_due = True
                 if row["id"].split(":")[0] in AUTO_PROBE_PROVIDERS:
@@ -351,7 +356,12 @@ class DaemonService:
                     if not last_probe:
                         probe_due.append(row["id"])
                     else:
-                        probe_delta = now - datetime.fromisoformat(last_probe)
+                        try:
+                            probe_delta = now - datetime.fromisoformat(last_probe)
+                        except (ValueError, TypeError):
+                            LOGGER.warning("Malformed last_probe timestamp for %s, treating as due", row["id"])
+                            probe_due.append(row["id"])
+                            continue
                         if probe_delta.total_seconds() >= self.active_probe_interval_minutes * 60:
                             probe_due.append(row["id"])
         finally:

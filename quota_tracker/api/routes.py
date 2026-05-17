@@ -117,7 +117,31 @@ def _normalize_iso_param(value: str | None) -> str | None:
     dt = dt.astimezone(UTC).replace(microsecond=0)
     return dt.isoformat()
 
-def _ensure_provider_exists(db_path: Path, provider_id: str) -> None:
+
+def _validate_home_path(raw_path: str) -> Path:
+    """Validate and canonicalize a provider home_path.
+
+    Must be under the user's home directory or /tmp.
+    Uses proper path semantics (not string prefix matching).
+    """
+    home_dir = Path(raw_path).expanduser().resolve()
+    home = Path.home().resolve()
+    try:
+        home_dir.relative_to(home)
+    except ValueError:
+        try:
+            home_dir.relative_to(Path("/tmp").resolve())
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="home_path must be under the user's home directory or /tmp",
+            ) from None
+    return home_dir
+
+
+def _ensure_provider_exists(
+    db_path: Path, provider_id: str, config_path: str | None = None
+) -> None:
     """Raise 404 if provider_id does not exist in the providers table."""
 
     if provider_id == "all":
@@ -126,7 +150,7 @@ def _ensure_provider_exists(db_path: Path, provider_id: str) -> None:
     conn = connect_db(str(db_path))
     try:
         apply_migrations(conn)
-        ensure_default_providers(conn)
+        ensure_default_providers(conn, config_path)
         row = conn.execute("SELECT 1 FROM providers WHERE id = ?", (provider_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail=f"Provider {provider_id} not found")
@@ -134,11 +158,11 @@ def _ensure_provider_exists(db_path: Path, provider_id: str) -> None:
         conn.close()
 
 
-def _prepare_provider_db(conn: Any) -> None:
+def _prepare_provider_db(conn: Any, config_path: str | None = None) -> None:
     """Apply migrations and ensure default provider rows exist."""
 
     apply_migrations(conn)
-    ensure_default_providers(conn)
+    ensure_default_providers(conn, config_path)
 
 
 def _health_payload(db_path: Path, scheduler_enabled: bool) -> dict[str, object]:
@@ -180,7 +204,7 @@ def register_routes(
 
         conn = connect_db(str(db_path))
         try:
-            _prepare_provider_db(conn)
+            _prepare_provider_db(conn, config_path_str)
             return {"providers": list_provider_health(conn)}
         finally:
             conn.close()
@@ -209,7 +233,7 @@ def register_routes(
                     status_code=409, detail="display_name already exists for this provider"
                 )
 
-        home_dir = Path(payload.home_path).expanduser()
+        home_dir = _validate_home_path(payload.home_path)
         try:
             home_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
@@ -226,17 +250,19 @@ def register_routes(
 
         conn = connect_db(str(db_path))
         try:
-            _prepare_provider_db(conn)
+            _prepare_provider_db(conn, config_path_str)
             insert_provider_row(
                 conn, provider_id, enabled=True, config=new_cfg.model_dump()
             )
-            # Update in-memory config and persist to config.json
             provider_dict[account_name] = new_cfg
-            conn.commit()
             save_config(config, config_path_str)
+            try:
+                conn.commit()
+            except Exception:
+                provider_dict.pop(account_name, None)
+                save_config(config, config_path_str)
+                raise
         except Exception as e:
-            # Revert in-memory config on failure
-            provider_dict.pop(account_name, None)
             conn.close()
             if isinstance(e, HTTPException):
                 raise
@@ -258,13 +284,14 @@ def register_routes(
         instance_name: str | None = None
         original_instance_cfg = None
         try:
-            _prepare_provider_db(conn)
+            _prepare_provider_db(conn, config_path_str)
             rows = {row["id"]: row for row in list_provider_rows(conn)}
             row = rows.get(provider_id)
             if row is None:
                 raise HTTPException(status_code=404, detail="provider not found")
             cfg = dict(row["config"])
             if payload.home_path is not None:
+                _validate_home_path(payload.home_path)
                 cfg["home_path"] = payload.home_path
             if payload.display_name is not None:
                 display_name_clean = payload.display_name.strip()
@@ -306,8 +333,13 @@ def register_routes(
                 display_name_clean = payload.display_name.strip()
                 instance_cfg.display_name = display_name_clean if display_name_clean else None
 
-            conn.commit()
             save_config(config, config_path_str)
+            try:
+                conn.commit()
+            except Exception:
+                provider_dict[instance_name] = original_instance_cfg
+                save_config(config, config_path_str)
+                raise
         except Exception as e:
             if provider_dict is not None and instance_name is not None and original_instance_cfg:
                 provider_dict[instance_name] = original_instance_cfg
@@ -336,23 +368,25 @@ def register_routes(
 
         conn = connect_db(str(db_path))
         try:
-            _prepare_provider_db(conn)
+            _prepare_provider_db(conn, config_path_str)
             rows = {row["id"]: row for row in list_provider_rows(conn)}
             if provider_id not in rows:
                 raise HTTPException(status_code=404, detail="provider not found")
 
             delete_provider_row(conn, provider_id)
-            conn.commit()
-            
-            # Update in-memory config and persist to config.json
+
             provider_dict = getattr(config, base_id)
+            deleted_cfg = None
             if instance_name in provider_dict:
                 deleted_cfg = provider_dict.pop(instance_name)
-                try:
-                    save_config(config, config_path_str)
-                except Exception:
+            save_config(config, config_path_str)
+            try:
+                conn.commit()
+            except Exception:
+                if deleted_cfg is not None:
                     provider_dict[instance_name] = deleted_cfg
-                    raise
+                save_config(config, config_path_str)
+                raise
         except Exception as e:
             conn.close()
             if isinstance(e, HTTPException):
@@ -367,10 +401,10 @@ def register_routes(
     def manual_scan(provider_id: str, payload: ProviderActionRequest) -> dict[str, Any]:
         """Run manual passive scan for one provider."""
 
-        _ensure_provider_exists(db_path, provider_id)
+        _ensure_provider_exists(db_path, provider_id, config_path_str)
         conn = connect_db(str(db_path))
         try:
-            _prepare_provider_db(conn)
+            _prepare_provider_db(conn, config_path_str)
             if provider_id != "all":
                 row = conn.execute(
                     "SELECT enabled FROM providers WHERE id = ?", (provider_id,)
@@ -380,17 +414,22 @@ def register_routes(
         finally:
             conn.close()
         runner = service or DaemonService(str(db_path))
-        summary = runner.run_scan(provider=provider_id, full=payload.full_rescan)
+        try:
+            summary = runner.run_scan(provider=provider_id, full=payload.full_rescan)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).exception("Manual scan failed for %s", provider_id)
+            raise HTTPException(status_code=500, detail=f"Scan failed: {e}") from e
         return {"ok": True, "summary": summary.__dict__}
 
     @app.post("/api/providers/{provider_id}/probe")
     def manual_probe(provider_id: str) -> dict[str, Any]:
         """Run manual active probe for one provider."""
 
-        _ensure_provider_exists(db_path, provider_id)
+        _ensure_provider_exists(db_path, provider_id, config_path_str)
         conn = connect_db(str(db_path))
         try:
-            _prepare_provider_db(conn)
+            _prepare_provider_db(conn, config_path_str)
             if provider_id != "all":
                 row = conn.execute(
                     "SELECT enabled FROM providers WHERE id = ?", (provider_id,)
@@ -400,14 +439,19 @@ def register_routes(
         finally:
             conn.close()
         runner = service or DaemonService(str(db_path))
-        summary = runner.run_probe(provider=provider_id)
+        try:
+            summary = runner.run_probe(provider=provider_id)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).exception("Manual probe failed for %s", provider_id)
+            raise HTTPException(status_code=500, detail=f"Probe failed: {e}") from e
         return {"ok": True, "summary": summary.__dict__}
 
     @app.post("/api/providers/{provider_id}/rescan")
     def manual_full_rescan(provider_id: str, payload: ProviderActionRequest) -> dict[str, Any]:
         """Reset high-water marks then run full rescan when explicitly requested."""
 
-        _ensure_provider_exists(db_path, provider_id)
+        _ensure_provider_exists(db_path, provider_id, config_path_str)
         if not payload.full_rescan:
             return {
                 "ok": False,
@@ -415,7 +459,7 @@ def register_routes(
             }
         conn = connect_db(str(db_path))
         try:
-            _prepare_provider_db(conn)
+            _prepare_provider_db(conn, config_path_str)
             if provider_id != "all":
                 row = conn.execute(
                     "SELECT enabled FROM providers WHERE id = ?", (provider_id,)
@@ -427,7 +471,12 @@ def register_routes(
         runner = service or DaemonService(str(db_path))
         if provider_id != "all":
             runner.reset_high_water_marks(provider_id)
-        summary = runner.run_scan(provider=provider_id, full=True)
+        try:
+            summary = runner.run_scan(provider=provider_id, full=True)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).exception("Full rescan failed for %s", provider_id)
+            raise HTTPException(status_code=500, detail=f"Rescan failed: {e}") from e
         return {"ok": True, "summary": summary.__dict__}
 
     @app.get("/api/quotas")
@@ -770,8 +819,9 @@ def register_routes(
                     is_dev = "dev" in __version__
                     if latest and not is_dev:
                         update_available = latest != __version__
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Failed to check for updates: %s", e)
         return {"current": __version__, "latest": latest, "update_available": update_available}
 
     @app.post("/api/update")

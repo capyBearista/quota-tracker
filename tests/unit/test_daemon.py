@@ -423,3 +423,29 @@ def test_daemon_tick_multi_account(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert "scan:all" in calls
     assert "probe:gemini" in calls
     assert "probe:gemini:work" in calls
+
+
+def test_daemon_tick_handles_malformed_timestamp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Malformed last_sync timestamp doesn't crash the scheduler tick."""
+    db_path = tmp_path / "db.sqlite3"
+    service = DaemonService(str(db_path), sync_interval_minutes=15)
+    service.migrate_and_prepare()
+
+    conn = connect_db(str(db_path))
+    try:
+        from quota_tracker.db.queries import insert_provider_row
+        cfg = {
+            "home_path": str(tmp_path / "gemini-bad-ts"),
+            "safe_options": {"last_successful_sync_at": "not-a-timestamp"},
+        }
+        insert_provider_row(conn, "gemini", enabled=True, config=cfg)
+        conn.commit()
+    finally:
+        conn.close()
+
+    called = []
+    monkeypatch.setattr(service, "run_scan", lambda provider="all", full=False: called.append(f"scan:{provider}") or type("SyncSummary", (), {"sessions_upserted": 0, "token_rows_inserted": 0, "quota_rows_inserted": 0, "parse_failures": 0, "failed_providers": []})())
+
+    service.tick()
+
+    assert "scan:all" in called

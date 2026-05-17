@@ -306,13 +306,13 @@ def run_maintenance(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def ensure_default_providers(conn: sqlite3.Connection) -> None:
+def ensure_default_providers(conn: sqlite3.Connection, config_path: str | None = None) -> None:
     """Insert default provider rows when missing."""
 
     from quota_tracker.config import load_config
 
     now = utc_now_iso()
-    config = load_config()
+    config = load_config(config_path)
 
     for base_provider in BASE_PROVIDERS:
         provider_dict = getattr(config, base_provider, {})

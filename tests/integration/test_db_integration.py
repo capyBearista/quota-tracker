@@ -8,6 +8,7 @@ from quota_tracker.db import (
     TokenUsageRecord,
     apply_migrations,
     connect_db,
+    ensure_default_providers,
     insert_quota,
     insert_token_usage,
     upsert_session,
@@ -19,6 +20,7 @@ def test_full_flow(tmp_path: Path) -> None:
     conn = connect_db(str(tmp_path / "flow.sqlite3"))
     try:
         apply_migrations(conn)
+        ensure_default_providers(conn)
         with write_transaction(conn):
             sid = upsert_session(
                 conn,

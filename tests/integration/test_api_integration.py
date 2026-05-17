@@ -509,3 +509,288 @@ def test_manual_action_disabled_provider_returns_409(tmp_path: Path) -> None:
     assert response.status_code == 200
 
     assert client.post("/api/providers/codex/probe").status_code == 409
+
+
+def test_create_provider_rolls_back_on_config_save_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "api.sqlite3"
+    _seed(db_path)
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    def failing_save(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("quota_tracker.api.routes.save_config", failing_save)
+
+    payload = {
+        "base_provider": "gemini",
+        "account_name": "rollback_test",
+        "display_name": "Rollback Test",
+        "home_path": str(tmp_path / "gemini-rollback"),
+    }
+    response = client.post("/api/providers", json=payload)
+    assert response.status_code == 500
+
+    conn = connect_db(str(db_path))
+    try:
+        apply_migrations(conn)
+        ensure_default_providers(conn)
+        row = conn.execute(
+            "SELECT 1 FROM providers WHERE id = ?", ("gemini:rollback_test",)
+        ).fetchone()
+        assert row is None, "DB row should not exist after config save failure"
+    finally:
+        conn.close()
+
+
+def test_patch_provider_rolls_back_on_config_save_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "api.sqlite3"
+    _seed(db_path)
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    payload = {
+        "base_provider": "gemini",
+        "account_name": "patch_rollback",
+        "display_name": "Patch Rollback",
+        "home_path": str(tmp_path / "gemini-patch-rollback"),
+    }
+    assert client.post("/api/providers", json=payload).status_code == 200
+
+    monkeypatch.setattr(
+        "quota_tracker.api.routes.save_config",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    response = client.patch("/api/providers/gemini:patch_rollback", json={"display_name": "New Name"})
+    assert response.status_code == 500
+
+    health = client.get("/api/providers").json()
+    provider = next(
+        (p for p in health["providers"] if p["id"] == "gemini:patch_rollback"), None
+    )
+    assert provider is not None
+    assert provider["config"].get("display_name") == "Patch Rollback"
+
+
+def test_delete_provider_rolls_back_on_config_save_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "api.sqlite3"
+    _seed(db_path)
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    payload = {
+        "base_provider": "gemini",
+        "account_name": "delete_rollback",
+        "display_name": "Delete Rollback",
+        "home_path": str(tmp_path / "gemini-delete-rollback"),
+    }
+    assert client.post("/api/providers", json=payload).status_code == 200
+
+    monkeypatch.setattr("quota_tracker.api.routes.save_config", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")))
+
+    response = client.delete("/api/providers/gemini:delete_rollback")
+    assert response.status_code == 500
+
+    conn = connect_db(str(db_path))
+    try:
+        apply_migrations(conn)
+        ensure_default_providers(conn)
+        row = conn.execute(
+            "SELECT 1 FROM providers WHERE id = ?", ("gemini:delete_rollback",)
+        ).fetchone()
+        assert row is not None, "DB row should still exist after config save failure"
+    finally:
+        conn.close()
+
+
+def test_create_provider_rejects_path_outside_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """home_path outside user's home directory is rejected with 400."""
+    db_path = tmp_path / "api.sqlite3"
+    _seed(db_path)
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    payload = {
+        "base_provider": "gemini",
+        "account_name": "badpath",
+        "display_name": "Bad Path",
+        "home_path": "/root/impossible-dir",
+    }
+    response = client.post("/api/providers", json=payload)
+    assert response.status_code == 400
+    assert "home directory" in response.json()["detail"].lower()
+
+
+def test_ensure_default_providers_uses_custom_config_path(tmp_path: Path) -> None:
+    """Secondary accounts in a custom config are bootstrapped into the DB."""
+    db_path = tmp_path / "api.sqlite3"
+    config_path = tmp_path / "config.json"
+
+    from quota_tracker.config import AppConfig, ProviderConfig
+
+    config = AppConfig()
+    config.gemini["work"] = ProviderConfig(
+        enabled=True,
+        home_path=str(tmp_path / "gemini-work"),
+        display_name="Work Account",
+    )
+    config_path.write_text(config.model_dump_json(indent=2))
+
+    conn = connect_db(str(db_path))
+    try:
+        apply_migrations(conn)
+        ensure_default_providers(conn, str(config_path))
+        row = conn.execute(
+            "SELECT 1 FROM providers WHERE id = ?", ("gemini:work",)
+        ).fetchone()
+        assert row is not None, "gemini:work should be bootstrapped from custom config"
+    finally:
+        conn.close()
+
+
+def test_account_data_isolation(tmp_path: Path) -> None:
+    """Data for gemini:work does not leak into gemini queries and vice versa."""
+    db_path = tmp_path / "isolation.sqlite3"
+    conn = connect_db(str(db_path))
+    try:
+        apply_migrations(conn)
+        ensure_default_providers(conn)
+        from quota_tracker.db.queries import insert_provider_row
+        insert_provider_row(conn, "gemini:work", enabled=True, config={"home_path": str(tmp_path / "gw")})
+        conn.commit()
+
+        with write_transaction(conn):
+            sid_default = upsert_session(
+                conn,
+                SessionRecord(
+                    provider_id="gemini",
+                    external_session_id="s-default",
+                    model_name="gemini-2.5-pro",
+                    project_path="/tmp/proj-a",
+                    project_name="proj-a",
+                    created_at="2026-01-01T00:00:00+00:00",
+                    last_seen_at="2026-01-01T00:01:00+00:00",
+                    metadata={},
+                ),
+            )
+            insert_token_usage(
+                conn,
+                TokenUsageRecord(
+                    provider_id="gemini",
+                    session_id=sid_default,
+                    external_event_id="e-default",
+                    timestamp="2026-01-01T00:01:00+00:00",
+                    model_name="gemini-2.5-pro",
+                    source="local_log",
+                    input_tokens=100,
+                    output_tokens=50,
+                    cached_tokens=0,
+                    reasoning_tokens=0,
+                    thoughts_tokens=0,
+                    tool_tokens=0,
+                    total_tokens=150,
+                    raw_data={},
+                ),
+            )
+
+            sid_work = upsert_session(
+                conn,
+                SessionRecord(
+                    provider_id="gemini:work",
+                    external_session_id="s-work",
+                    model_name="gemini-2.5-pro",
+                    project_path="/tmp/proj-b",
+                    project_name="proj-b",
+                    created_at="2026-01-01T00:00:00+00:00",
+                    last_seen_at="2026-01-01T00:01:00+00:00",
+                    metadata={},
+                ),
+            )
+            insert_token_usage(
+                conn,
+                TokenUsageRecord(
+                    provider_id="gemini:work",
+                    session_id=sid_work,
+                    external_event_id="e-work",
+                    timestamp="2026-01-01T00:01:00+00:00",
+                    model_name="gemini-2.5-pro",
+                    source="local_log",
+                    input_tokens=200,
+                    output_tokens=100,
+                    cached_tokens=0,
+                    reasoning_tokens=0,
+                    thoughts_tokens=0,
+                    tool_tokens=0,
+                    total_tokens=300,
+                    raw_data={},
+                ),
+            )
+    finally:
+        conn.close()
+
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    default_resp = client.get("/api/token-usage", params={"group_by": "provider", "provider_id": "gemini"})
+    assert default_resp.status_code == 200
+    default_items = default_resp.json()["items"]
+    assert len(default_items) == 1
+    assert default_items[0]["total_tokens"] == 150
+
+    work_resp = client.get("/api/token-usage", params={"group_by": "provider", "provider_id": "gemini:work"})
+    assert work_resp.status_code == 200
+    work_items = work_resp.json()["items"]
+    assert len(work_items) == 1
+    assert work_items[0]["total_tokens"] == 300
+
+    default_sessions = client.get("/api/sessions", params={"provider_id": "gemini"})
+    assert len(default_sessions.json()["items"]) == 1
+    assert default_sessions.json()["items"][0]["provider_id"] == "gemini"
+
+    work_sessions = client.get("/api/sessions", params={"provider_id": "gemini:work"})
+    assert len(work_sessions.json()["items"]) == 1
+    assert work_sessions.json()["items"][0]["provider_id"] == "gemini:work"
+
+
+def test_patch_provider_rejects_path_outside_home(tmp_path: Path) -> None:
+    """patch_provider also validates home_path against allowed roots."""
+    db_path = tmp_path / "api.sqlite3"
+    _seed(db_path)
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    payload = {
+        "base_provider": "gemini",
+        "account_name": "patchpath",
+        "display_name": "Patch Path Test",
+        "home_path": str(tmp_path / "gemini-patchpath"),
+    }
+    assert client.post("/api/providers", json=payload).status_code == 200
+
+    response = client.patch("/api/providers/gemini:patchpath", json={"home_path": "/root/impossible"})
+    assert response.status_code == 400
+    assert "home directory" in response.json()["detail"].lower()
+
+
+def test_create_provider_rejects_sibling_path(tmp_path: Path) -> None:
+    """String prefix check would allow /tmp2 to match /tmp; proper path check rejects it."""
+    db_path = tmp_path / "api.sqlite3"
+    _seed(db_path)
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    payload = {
+        "base_provider": "gemini",
+        "account_name": "sibling",
+        "display_name": "Sibling Path",
+        "home_path": "/tmp2/not-allowed",
+    }
+    response = client.post("/api/providers", json=payload)
+    assert response.status_code == 400

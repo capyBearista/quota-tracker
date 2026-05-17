@@ -14,6 +14,7 @@ from quota_tracker.db import (
     TokenUsageRecord,
     apply_migrations,
     connect_db,
+    ensure_default_providers,
     insert_quota,
     insert_token_usage,
     upsert_session,
@@ -27,6 +28,7 @@ def _seed(db_path: Path) -> None:
     conn = connect_db(str(db_path))
     try:
         apply_migrations(conn)
+        ensure_default_providers(conn)
         with write_transaction(conn):
             sid = upsert_session(
                 conn,

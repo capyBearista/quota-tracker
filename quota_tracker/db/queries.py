@@ -218,8 +218,13 @@ def delete_provider_row(conn: sqlite3.Connection, provider_id: str) -> None:
     """Delete a provider row and all its related history (cascading)."""
 
     ensure_provider(provider_id)
-    conn.execute("DELETE FROM token_usage_history WHERE provider_id = ?", (provider_id,))
-    conn.execute("DELETE FROM sessions WHERE provider_id = ?", (provider_id,))
-    conn.execute("DELETE FROM quota_history WHERE provider_id = ?", (provider_id,))
-    conn.execute("DELETE FROM quota_history_archived WHERE provider_id = ?", (provider_id,))
-    conn.execute("DELETE FROM providers WHERE id = ?", (provider_id,))
+    conn.execute("SAVEPOINT delete_provider")
+    try:
+        conn.execute("DELETE FROM token_usage_history WHERE provider_id = ?", (provider_id,))
+        conn.execute("DELETE FROM sessions WHERE provider_id = ?", (provider_id,))
+        conn.execute("DELETE FROM quota_history WHERE provider_id = ?", (provider_id,))
+        conn.execute("DELETE FROM quota_history_archived WHERE provider_id = ?", (provider_id,))
+        conn.execute("DELETE FROM providers WHERE id = ?", (provider_id,))
+    except Exception:
+        conn.execute("ROLLBACK TO delete_provider")
+        raise

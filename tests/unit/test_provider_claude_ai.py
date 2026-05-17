@@ -428,3 +428,16 @@ def test_claude_provider_instance_id_override(tmp_path: Path) -> None:
     
     assert len(records) > 0
     assert records[0].provider_id == "claude:work"
+
+
+def test_claude_active_probe_raises_on_fetch_failure(tmp_path: Path) -> None:
+    """_fetch_usage errors propagate as ProviderProbeError instead of being silenced."""
+    (tmp_path / "quota_tracker_creds.json").write_text(json.dumps({"session_key": "sk-1"}))
+    p = ClaudeAiProvider(str(tmp_path))
+
+    with (
+        patch("quota_tracker.providers.claude_ai._fetch_org_id", return_value="org-1"),
+        patch("quota_tracker.providers.claude_ai._fetch_usage", side_effect=ProviderProbeError("API failed")),
+    ):
+        with pytest.raises(ProviderProbeError, match="API failed"):
+            p.active_probe()

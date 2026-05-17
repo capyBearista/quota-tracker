@@ -15,6 +15,7 @@ from quota_tracker.db import (
     TokenUsageRecord,
     apply_migrations,
     connect_db,
+    delete_provider_row,
     deterministic_session_id,
     get_provider_row,
     insert_quota,
@@ -259,5 +260,79 @@ def test_apply_migrations_does_not_reconcile_providers(tmp_path: Path) -> None:
             apply_migrations(conn)
             # This is expected to FAIL currently (it is called at the end of apply_migrations)
             mock_ensure.assert_not_called()
+    finally:
+        conn.close()
+
+
+def test_delete_provider_cascades_to_all_tables(tmp_path: Path) -> None:
+    """Deleting a provider removes rows from all 4 history tables."""
+    conn = _db(tmp_path)
+    try:
+        apply_migrations(conn)
+        from quota_tracker.db.queries import insert_provider_row
+        insert_provider_row(conn, "gemini:test", enabled=True, config={"home_path": str(tmp_path / "gt")})
+        conn.commit()
+
+        with write_transaction(conn):
+            sid = upsert_session(
+                conn,
+                SessionRecord(
+                    provider_id="gemini:test",
+                    external_session_id="s-cascade",
+                    model_name="gemini-2.5-pro",
+                    project_path="/tmp/p",
+                    project_name="p",
+                    created_at="2026-01-01T00:00:00+00:00",
+                    last_seen_at="2026-01-01T00:01:00+00:00",
+                    metadata={},
+                ),
+            )
+            insert_token_usage(
+                conn,
+                TokenUsageRecord(
+                    provider_id="gemini:test",
+                    session_id=sid,
+                    external_event_id="e-cascade",
+                    timestamp="2026-01-01T00:01:00+00:00",
+                    model_name="gemini-2.5-pro",
+                    source="local_log",
+                    input_tokens=10,
+                    output_tokens=5,
+                    cached_tokens=0,
+                    reasoning_tokens=0,
+                    thoughts_tokens=0,
+                    tool_tokens=0,
+                    total_tokens=15,
+                    raw_data={},
+                ),
+            )
+            insert_quota(
+                conn,
+                QuotaRecord(
+                    provider_id="gemini:test",
+                    quota_name="primary",
+                    source="local_log",
+                    timestamp="2026-01-01T00:01:00+00:00",
+                    used_percent=25.0,
+                    remaining_percent=75.0,
+                    window_minutes=60,
+                    resets_at=None,
+                    raw_data={},
+                ),
+            )
+
+        delete_provider_row(conn, "gemini:test")
+        conn.commit()
+
+        for table in ("token_usage_history", "sessions", "quota_history", "quota_history_archived"):
+            count = conn.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE provider_id = ?", ("gemini:test",)
+            ).fetchone()[0]
+            assert count == 0, f"Expected 0 rows in {table} after delete"
+
+        provider_row = conn.execute(
+            "SELECT 1 FROM providers WHERE id = ?", ("gemini:test",)
+        ).fetchone()
+        assert provider_row is None, "Provider row should be deleted"
     finally:
         conn.close()

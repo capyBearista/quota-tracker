@@ -186,7 +186,7 @@ class CodexProvider:
 
         auth_path = self.home / "auth.json"
         if not auth_path.exists():
-            return []
+            raise ProviderProbeError(f"Auth file not found: {auth_path}")
         try:
             auth = json.loads(auth_path.read_text(encoding="utf-8", errors="replace"))
         except Exception as e:

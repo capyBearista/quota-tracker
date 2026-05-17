@@ -121,9 +121,10 @@ def test_codex_archived_and_sqlite_readonly(tmp_path: Path) -> None:
 
 
 def test_codex_active_probe_no_auth(tmp_path: Path) -> None:
-    """Returns empty list when auth.json is missing."""
+    """Raises ProviderProbeError when auth.json is missing."""
     p = CodexProvider(str(tmp_path))
-    assert p.active_probe() == []
+    with pytest.raises(ProviderProbeError, match="Auth file not found"):
+        p.active_probe()
 
 
 def test_codex_active_probe_missing_token(tmp_path: Path) -> None:
@@ -199,13 +200,20 @@ def test_codex_active_probe_missing_window(tmp_path: Path) -> None:
 
 
 def test_codex_active_probe_network_error(tmp_path: Path) -> None:
-    """Network failure returns empty list."""
+    """Network failure raises ProviderProbeError."""
     auth = {"tokens": {"access_token": "tok"}}
     (tmp_path / "auth.json").write_text(json.dumps(auth))
     p = CodexProvider(str(tmp_path))
     with patch("quota_tracker.providers.codex.get_json", side_effect=RuntimeError("timeout")):
         with pytest.raises(ProviderProbeError, match="Codex API error: timeout"):
             p.active_probe()
+
+
+def test_codex_active_probe_raises_on_missing_auth(tmp_path: Path) -> None:
+    """Missing auth.json raises ProviderProbeError instead of silently returning []."""
+    p = CodexProvider(str(tmp_path))
+    with pytest.raises(ProviderProbeError, match="Auth file not found"):
+        p.active_probe()
 
 
 def test_codex_active_probe_invalid_auth_json(tmp_path: Path) -> None:
