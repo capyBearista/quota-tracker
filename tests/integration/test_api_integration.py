@@ -544,6 +544,14 @@ def test_create_provider_rolls_back_on_config_save_failure(
     finally:
         conn.close()
 
+    # Restore normal config writes, then retry. This should succeed if in-memory
+    # provider_dict was rolled back after the failed save.
+    from quota_tracker.config import save_config as real_save_config
+
+    monkeypatch.setattr("quota_tracker.api.routes.save_config", real_save_config)
+    retry = client.post("/api/providers", json=payload)
+    assert retry.status_code == 200
+
 
 def test_patch_provider_rolls_back_on_config_save_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -597,6 +605,11 @@ def test_delete_provider_rolls_back_on_config_save_failure(
 
     response = client.delete("/api/providers/gemini:delete_rollback")
     assert response.status_code == 500
+
+    # If in-memory provider_dict is restored, a recreate attempt should be
+    # rejected as an existing account (409), not crash on DB uniqueness.
+    recreate = client.post("/api/providers", json=payload)
+    assert recreate.status_code == 409
 
     conn = connect_db(str(db_path))
     try:

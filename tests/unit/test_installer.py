@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from quota_tracker.config import AppConfig, ProviderConfig
-from quota_tracker.db import apply_migrations, connect_db, get_provider_row, update_provider_row
+from quota_tracker.db import connect_db, get_provider_row, update_provider_row
 from quota_tracker.installer import (
     _input_with_default,
     _parse_bool,
@@ -39,7 +39,7 @@ def test_merge_config_idempotent_updates() -> None:
             "web_port": 9999,
             "active_probe_interval_minutes": 10,
             "passive_sync_interval_minutes": 5,
-            "gemini": {"enabled": False, "home_path": "/tmp/g"},
+            "gemini": {"default": {"enabled": False, "home_path": "/tmp/g"}},
         },
     )
     assert merged.daemon.web_host == "0.0.0.0"
@@ -195,9 +195,10 @@ def test_sync_provider_rows_preserves_runtime_safe_options(tmp_path: Path) -> No
     cfg.daemon.database_path = str(db_path)
     cfg.gemini["default"].enabled = False
     cfg.gemini["default"].home_path = str(tmp_path / "gemini-home")
+    sync_provider_rows_from_config(cfg)
+
     conn = connect_db(str(db_path))
     try:
-        apply_migrations(conn)
         row = get_provider_row(conn, "gemini")
         assert row is not None
         db_cfg = dict(row["config"])

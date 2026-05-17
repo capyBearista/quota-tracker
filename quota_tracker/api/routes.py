@@ -249,20 +249,27 @@ def register_routes(
         new_cfg.active_probe_enabled = True
 
         conn = connect_db(str(db_path))
+        provider_added = False
         try:
             _prepare_provider_db(conn, config_path_str)
             insert_provider_row(
                 conn, provider_id, enabled=True, config=new_cfg.model_dump()
             )
             provider_dict[account_name] = new_cfg
+            provider_added = True
             save_config(config, config_path_str)
             try:
                 conn.commit()
             except Exception:
                 provider_dict.pop(account_name, None)
+                provider_added = False
                 save_config(config, config_path_str)
                 raise
         except Exception as e:
+            if provider_added:
+                provider_dict.pop(account_name, None)
+                provider_added = False
+            conn.rollback()
             conn.close()
             if isinstance(e, HTTPException):
                 raise
@@ -367,6 +374,9 @@ def register_routes(
         instance_name = parts[1]
 
         conn = connect_db(str(db_path))
+        provider_dict = getattr(config, base_id)
+        deleted_cfg = None
+        provider_removed = False
         try:
             _prepare_provider_db(conn, config_path_str)
             rows = {row["id"]: row for row in list_provider_rows(conn)}
@@ -375,19 +385,23 @@ def register_routes(
 
             delete_provider_row(conn, provider_id)
 
-            provider_dict = getattr(config, base_id)
-            deleted_cfg = None
             if instance_name in provider_dict:
                 deleted_cfg = provider_dict.pop(instance_name)
+                provider_removed = True
             save_config(config, config_path_str)
             try:
                 conn.commit()
             except Exception:
                 if deleted_cfg is not None:
                     provider_dict[instance_name] = deleted_cfg
+                    provider_removed = False
                 save_config(config, config_path_str)
                 raise
         except Exception as e:
+            if provider_removed and deleted_cfg is not None:
+                provider_dict[instance_name] = deleted_cfg
+                provider_removed = False
+            conn.rollback()
             conn.close()
             if isinstance(e, HTTPException):
                 raise
