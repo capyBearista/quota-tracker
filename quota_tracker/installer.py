@@ -256,6 +256,24 @@ def maybe_enable_service(confirm: bool) -> None:
     subprocess.run(["systemctl", "--user", "restart", "quota-tracker.service"], check=False)
 
 
+def install_service_unit(
+    *,
+    home: Path,
+    enable_service: bool = False,
+    exec_path: str | None = None,
+) -> dict[str, object]:
+    """Write the systemd user unit and optionally enable/restart it."""
+
+    resolved_exec = exec_path or shutil.which("quota-tracker") or "quota-tracker"
+    unit_text = build_systemd_unit(resolved_exec, DEFAULT_LOG_DIR)
+    unit_path, changed = write_systemd_user_service(unit_text, home)
+    maybe_enable_service(enable_service)
+    return {
+        "service_path": str(unit_path),
+        "service_updated": changed,
+    }
+
+
 def run_install(
     config: AppConfig,
     *,
@@ -271,14 +289,12 @@ def run_install(
     ensure_directories(config)
     save_config(config)
     sync_provider_rows_from_config(config)
-    resolved_exec = exec_path or shutil.which("quota-tracker") or "quota-tracker"
-    unit_text = build_systemd_unit(resolved_exec, DEFAULT_LOG_DIR)
-    unit_path, changed = write_systemd_user_service(unit_text, home)
-    maybe_enable_service(enable_service)
+    svc_result = install_service_unit(
+        home=home, enable_service=enable_service, exec_path=exec_path
+    )
     return {
         "config": config.daemon.model_dump(),
-        "service_path": str(unit_path),
-        "service_updated": changed,
+        **svc_result,
     }
 
 

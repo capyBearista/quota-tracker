@@ -20,6 +20,7 @@ from quota_tracker.config import (
 from quota_tracker.daemon import DaemonService
 from quota_tracker.db import apply_migrations, connect_db
 from quota_tracker.installer import (
+    install_service_unit,
     render_install_script,
     run_install,
     sync_provider_rows_from_config,
@@ -287,11 +288,8 @@ def main() -> int:
         print(f"service: {svc_path} ({status_str})")
         return 0
     if args.command == "install-user-service":
-        config = load_config()
-        install_summary = run_install(
-            config,
+        install_summary = install_service_unit(
             home=Path.home(),
-            interactive=False,
             enable_service=True,
             exec_path=args.exec_path,
         )

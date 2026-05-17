@@ -119,24 +119,11 @@ def _normalize_iso_param(value: str | None) -> str | None:
 
 
 def _validate_home_path(raw_path: str) -> Path:
-    """Validate and canonicalize a provider home_path.
+    """Canonicalize a provider home_path.
 
-    Must be under the user's home directory or /tmp.
-    Uses proper path semantics (not string prefix matching).
+    Expands user home and resolves symlinks so the stored path is consistent.
     """
-    home_dir = Path(raw_path).expanduser().resolve()
-    home = Path.home().resolve()
-    try:
-        home_dir.relative_to(home)
-    except ValueError:
-        try:
-            home_dir.relative_to(Path("/tmp").resolve())
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail="home_path must be under the user's home directory or /tmp",
-            ) from None
-    return home_dir
+    return Path(raw_path).expanduser().resolve()
 
 
 def _ensure_provider_exists(

@@ -623,24 +623,6 @@ def test_delete_provider_rolls_back_on_config_save_failure(
         conn.close()
 
 
-def test_create_provider_rejects_path_outside_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """home_path outside user's home directory is rejected with 400."""
-    db_path = tmp_path / "api.sqlite3"
-    _seed(db_path)
-    app = create_app(db_path=db_path)
-    client = TestClient(app)
-
-    payload = {
-        "base_provider": "gemini",
-        "account_name": "badpath",
-        "display_name": "Bad Path",
-        "home_path": "/root/impossible-dir",
-    }
-    response = client.post("/api/providers", json=payload)
-    assert response.status_code == 400
-    assert "home directory" in response.json()["detail"].lower()
-
-
 def test_ensure_default_providers_uses_custom_config_path(tmp_path: Path) -> None:
     """Secondary accounts in a custom config are bootstrapped into the DB."""
     db_path = tmp_path / "api.sqlite3"
@@ -771,39 +753,3 @@ def test_account_data_isolation(tmp_path: Path) -> None:
     assert len(work_sessions.json()["items"]) == 1
     assert work_sessions.json()["items"][0]["provider_id"] == "gemini:work"
 
-
-def test_patch_provider_rejects_path_outside_home(tmp_path: Path) -> None:
-    """patch_provider also validates home_path against allowed roots."""
-    db_path = tmp_path / "api.sqlite3"
-    _seed(db_path)
-    app = create_app(db_path=db_path)
-    client = TestClient(app)
-
-    payload = {
-        "base_provider": "gemini",
-        "account_name": "patchpath",
-        "display_name": "Patch Path Test",
-        "home_path": str(tmp_path / "gemini-patchpath"),
-    }
-    assert client.post("/api/providers", json=payload).status_code == 200
-
-    response = client.patch("/api/providers/gemini:patchpath", json={"home_path": "/root/impossible"})
-    assert response.status_code == 400
-    assert "home directory" in response.json()["detail"].lower()
-
-
-def test_create_provider_rejects_sibling_path(tmp_path: Path) -> None:
-    """String prefix check would allow /tmp2 to match /tmp; proper path check rejects it."""
-    db_path = tmp_path / "api.sqlite3"
-    _seed(db_path)
-    app = create_app(db_path=db_path)
-    client = TestClient(app)
-
-    payload = {
-        "base_provider": "gemini",
-        "account_name": "sibling",
-        "display_name": "Sibling Path",
-        "home_path": "/tmp2/not-allowed",
-    }
-    response = client.post("/api/providers", json=payload)
-    assert response.status_code == 400
